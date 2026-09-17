@@ -8,7 +8,7 @@ leads to a human agent, and chases everyone who goes quiet.
 Built against [`docs/spec/BUILD-PROMPT.md`](docs/spec/BUILD-PROMPT.md) and [`docs/flowcharts/Landmark-System-1-Complete-Flow.pdf`](docs/flowcharts/Landmark-System-1-Complete-Flow.pdf), one
 phase at a time.
 
-**Status: Phase 1 (Lead intake) complete.**
+**Status: Phase 2 (Task queue) complete.**
 
 ## Stack
 
@@ -85,6 +85,7 @@ Then open http://localhost:3000 — it redirects to `/app`, which redirects to
 | `npm run db:studio` | Browse the database |
 | `npm run user:create` | Create or update a login account |
 | `npm run verify:phase1` | Phase 1 acceptance test (needs `npm run dev` running) |
+| `npm run verify:phase2` | Phase 2 acceptance test (needs `npm run dev` running) |
 
 ## Layout
 
@@ -123,6 +124,26 @@ second row — it appends a `touches` row, so the enquiry history lives in the
 append-only log. `leads.source` keeps the *first* source, because that is what
 portal spend is reconciled against; later sources are recorded on the touch.
 
+## The task queue
+
+Everything scheduled is a row in `tasks`. Nothing slow runs inside a webhook.
+
+```bash
+curl http://localhost:3000/api/cron/worker -H "x-cron-secret: $CRON_SECRET"
+```
+
+In production, point a cron at that URL every minute. Vercel Cron's
+`Authorization: Bearer <CRON_SECRET>` header is accepted too.
+
+- Tasks are claimed with `FOR UPDATE SKIP LOCKED`, so two workers never take the
+  same one.
+- `attempts` is counted when a task is **claimed**, not when it fails — a task
+  that kills the worker still runs out of attempts instead of retrying forever.
+- Retries back off 1 min → 5 min → 30 min, then `FAILED` after 5 attempts.
+- A task left `RUNNING` by a dead worker is returned to `PENDING` after 10
+  minutes.
+- `/app/debug` (development only) adds test tasks and runs the worker by hand.
+
 ## Two things worth knowing
 
 **Auth is checked twice.** `proxy.ts` (Next 16's renamed middleware) redirects
@@ -136,7 +157,7 @@ also calls `requireUser()` / `requireAdmin()` server-side.
 
 - [x] **Phase 0** — Foundation: project, schema, auth, time and phone libraries
 - [x] **Phase 1** — Lead intake: webhook, dedupe, manual form, leads table
-- [ ] Phase 2 — Task queue
+- [x] **Phase 2** — Task queue: enqueue, worker, retries, debug page
 - [ ] Phase 3 — WhatsApp
 - [ ] Phase 4 — Meera and The Reader
 - [ ] Phase 5 — The first-hour ladder

@@ -8,6 +8,13 @@
       "when": 1788377892185,
       "tag": "0000_wide_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789676905339,
+      "tag": "0001_odd_viper",
+      "breakpoints": true
     }
   ]
 }

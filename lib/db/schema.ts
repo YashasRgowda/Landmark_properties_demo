@@ -76,6 +76,9 @@ export const TOUCH_OUTCOMES = [
 export type TouchOutcome = (typeof TOUCH_OUTCOMES)[number];
 
 export const TASK_TYPES = [
+  // Test-only type used by /app/debug and the Phase 2 verification script to
+  // exercise the queue itself. Never enqueued by real business logic.
+  'DEV_ECHO',
   'SEND_FIRST_MESSAGE',
   'CHECK_DELIVERY',
   'CREATE_CALL_TASK',
@@ -241,6 +244,9 @@ export const tasks = pgTable(
     dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
     status: text('status').notNull().default('PENDING'),
     attempts: integer('attempts').notNull().default(0),
+    // When the current RUNNING attempt was claimed. Lets the worker rescue
+    // tasks abandoned by a crashed process; NULL whenever not RUNNING.
+    startedAt: timestamp('started_at', { withTimezone: true }),
     lastError: text('last_error'),
     idempotencyKey: text('idempotency_key').unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

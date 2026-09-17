@@ -15,7 +15,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "user:create": "tsx --env-file=.env.local scripts/create-user.ts",
-    "verify:phase1": "tsx --env-file=.env.local scripts/verify-phase1.mts"
+    "verify:phase1": "tsx --env-file=.env.local scripts/verify-phase1.mts",
+    "verify:phase2": "tsx --env-file=.env.local scripts/verify-phase2.mts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

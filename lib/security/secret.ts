@@ -12,9 +12,20 @@ export function secretMatches(provided: string | null | undefined, expected: str
   return timingSafeEqual(a, b);
 }
 
-/** Reads the shared secret from either header style a portal might send. */
-export function extractSecret(headers: Headers): string | null {
+/**
+ * Reads a shared secret from the request.
+ *
+ * `Authorization: Bearer <secret>` is always accepted — it is what Vercel Cron
+ * sends. `headerNames` lists the plain headers this particular endpoint also
+ * accepts, so the lead webhook and the cron worker each name their own.
+ */
+export function extractSecret(headers: Headers, headerNames: string[] = ['x-webhook-secret']): string | null {
   const auth = headers.get('authorization');
   if (auth?.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
-  return headers.get('x-webhook-secret');
+
+  for (const name of headerNames) {
+    const value = headers.get(name);
+    if (value) return value.trim();
+  }
+  return null;
 }
