@@ -5,7 +5,7 @@ lead on WhatsApp within 60 seconds at any hour, holds a real conversation in the
 buyer's language, sorts them Hot/Warm/Cold/Reject, books site visits, hands hot
 leads to a human agent, and chases everyone who goes quiet.
 
-Built against `BUILD-PROMPT.md` and `Landmark-System-1-Complete-Flow.pdf`, one
+Built against [`docs/spec/BUILD-PROMPT.md`](docs/spec/BUILD-PROMPT.md) and [`docs/flowcharts/Landmark-System-1-Complete-Flow.pdf`](docs/flowcharts/Landmark-System-1-Complete-Flow.pdf), one
 phase at a time.
 
 **Status: Phase 1 (Lead intake) complete.**
@@ -102,6 +102,7 @@ drizzle/            generated SQL migrations
 scripts/            operational scripts
 tests/              Vitest unit tests
 proxy.ts            optimistic auth redirect for /app and /admin
+docs/               project documents — spec, flowcharts, proposal (see docs/README.md)
 ```
 
 ## Lead intake

@@ -1,7 +1,7 @@
 # Landmark Properties — System 1 (Lead Engine) — Build Specification
 
 > **How to use this file.** Open a new Claude Code session in this folder and say:
-> *"Read BUILD-PROMPT.md. Start Phase 0. Do not move to the next phase until I confirm the acceptance test passes."*
+> *"Read docs/spec/BUILD-PROMPT.md. Start Phase 0. Do not move to the next phase until I confirm the acceptance test passes."*
 >
 > Build **one phase at a time**. Do not skip ahead. Each phase ends with a test you can run yourself.
 
@@ -15,8 +15,8 @@ An AI lead-response system for **Landmark Properties**, a plotted-development co
 
 **What System 1 does:** answers every lead on WhatsApp within 60 seconds (any hour, day or night), holds a real conversation in the buyer's language, sorts them Hot/Warm/Cold/Reject, books site visits, hands hot leads to a human agent with a briefing, and automatically chases everyone who goes quiet.
 
-**Reference material in this folder / linked:**
-- `Landmark-System-1-Complete-Flow.pdf` — **the authoritative flowchart.** Build exactly this.
+**Reference material in `docs/` / linked:**
+- `docs/flowcharts/Landmark-System-1-Complete-Flow.pdf` — **the authoritative flowchart.** Build exactly this.
 - Full proposal: https://claude.ai/code/artifact/d078db58-5501-4fb6-8417-fc1a9e24f095
 - All 8 system diagrams: https://claude.ai/code/artifact/5d08e0fa-01c0-4d1d-931d-10ec7f123f2d
 
