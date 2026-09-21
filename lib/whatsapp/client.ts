@@ -32,7 +32,9 @@ function config() {
     throw new Error('WHATSAPP_TOKEN and WHATSAPP_PHONE_ID must be set before sending.');
   }
   // Overridable so tests can point at a local stand-in for Meta.
-  const base = process.env.WHATSAPP_API_BASE ?? 'https://graph.facebook.com';
+  // `||`, not `??`: a hosting dashboard can hold a variable that exists but is
+  // empty, and an empty base would send every message to a relative URL.
+  const base = process.env.WHATSAPP_API_BASE?.trim() || 'https://graph.facebook.com';
   return { token, phoneId, url: `${base}/${GRAPH_VERSION}/${phoneId}/messages` };
 }
 

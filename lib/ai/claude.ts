@@ -18,8 +18,8 @@ export class ClaudeProvider implements AIProvider {
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) throw new Error('ANTHROPIC_API_KEY is not set.');
 
-    const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
-    const base = process.env.ANTHROPIC_API_BASE ?? 'https://api.anthropic.com';
+    const model = process.env.ANTHROPIC_MODEL?.trim() || 'claude-sonnet-5';
+    const base = process.env.ANTHROPIC_API_BASE?.trim() || 'https://api.anthropic.com';
 
     // Claude has no JSON mode; the instruction plus a prefilled "{" does it.
     const system = opts.json

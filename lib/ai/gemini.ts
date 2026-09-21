@@ -55,7 +55,7 @@ export class GeminiProvider implements AIProvider {
 
   async complete(opts: CompleteOptions): Promise<CompleteResult> {
     const base =
-      process.env.GEMINI_API_BASE ?? 'https://generativelanguage.googleapis.com/v1beta';
+      process.env.GEMINI_API_BASE?.trim() || 'https://generativelanguage.googleapis.com/v1beta';
 
     /**
      * Gemini 3.x thinks before answering, and those thoughts are charged
