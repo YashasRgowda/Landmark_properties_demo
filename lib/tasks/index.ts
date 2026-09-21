@@ -2,6 +2,8 @@ import 'server-only';
 import type { TaskType } from '@/lib/db/schema';
 import type { TaskHandler } from './types';
 import { devEcho } from './dev-echo';
+import { processWaEvent } from './whatsapp-event';
+import { runReader } from './run-reader';
 
 /**
  * Every task type maps to exactly one handler.
@@ -12,11 +14,12 @@ import { devEcho } from './dev-echo';
  */
 const HANDLERS: Record<TaskType, TaskHandler | null> = {
   DEV_ECHO: devEcho,
+  PROCESS_WA_EVENT: processWaEvent,
 
   SEND_FIRST_MESSAGE: null, // Phase 5
   CHECK_DELIVERY: null, // Phase 5
   CREATE_CALL_TASK: null, // Phase 5
-  RUN_READER: null, // Phase 4
+  RUN_READER: runReader,
   SEND_CHASE_MESSAGE: null, // Phase 6
   SEND_VISIT_REMINDER: null, // Phase 6
   ESCALATE_TO_AGENT: null, // Phase 5

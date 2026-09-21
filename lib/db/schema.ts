@@ -79,6 +79,9 @@ export const TASK_TYPES = [
   // Test-only type used by /app/debug and the Phase 2 verification script to
   // exercise the queue itself. Never enqueued by real business logic.
   'DEV_ECHO',
+  // One inbound webhook event from Meta. The webhook itself only queues this
+  // and returns 200 — all processing happens in the worker (golden rule 4).
+  'PROCESS_WA_EVENT',
   'SEND_FIRST_MESSAGE',
   'CHECK_DELIVERY',
   'CREATE_CALL_TASK',

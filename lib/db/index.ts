@@ -24,7 +24,9 @@ function connect(): Db {
   }
 
   const sql = postgres(url, {
-    max: 10,
+    // On a serverless host every instance opens its own pool; ten each would
+    // exhaust Supabase's connection limit under load.
+    max: process.env.VERCEL ? 3 : 10,
     // Supabase's transaction pooler does not support prepared statements.
     prepare: false,
   });

@@ -8,7 +8,7 @@ leads to a human agent, and chases everyone who goes quiet.
 Built against [`docs/spec/BUILD-PROMPT.md`](docs/spec/BUILD-PROMPT.md) and [`docs/flowcharts/Landmark-System-1-Complete-Flow.pdf`](docs/flowcharts/Landmark-System-1-Complete-Flow.pdf), one
 phase at a time.
 
-**Status: Phase 2 (Task queue) complete.**
+**Status: Phase 4 (Meera and The Reader) complete.**
 
 ## Stack
 
@@ -86,6 +86,8 @@ Then open http://localhost:3000 — it redirects to `/app`, which redirects to
 | `npm run user:create` | Create or update a login account |
 | `npm run verify:phase1` | Phase 1 acceptance test (needs `npm run dev` running) |
 | `npm run verify:phase2` | Phase 2 acceptance test (needs `npm run dev` running) |
+| `npm run verify:phase3` | Phase 3 acceptance test — runs against a fake Meta, no credentials needed |
+| `npm run verify:phase4` | Phase 4 acceptance test — a real Gemini conversation through the fake Meta |
 
 ## Layout
 
@@ -144,6 +146,65 @@ In production, point a cron at that URL every minute. Vercel Cron's
   minutes.
 - `/app/debug` (development only) adds test tasks and runs the worker by hand.
 
+## WhatsApp
+
+`POST /api/webhooks/whatsapp` takes inbound messages and delivery statuses;
+`GET` answers Meta's subscription challenge.
+
+- Every delivery must carry a valid `X-Hub-Signature-256`. Unsigned requests are
+  rejected, and the signature is checked against the **raw** body.
+- The webhook only queues a `PROCESS_WA_EVENT` task and returns 200. Nothing is
+  processed inline — Meta retries anything slow, which is how buyers get
+  duplicate replies.
+- `messages.wa_message_id` is unique, so a redelivered event is a no-op.
+- Delivery statuses never move backwards: a late `sent` cannot undo a `read`,
+  and a buyer who replied stays `REPLIED`.
+- **Opt-out:** a message that is exactly STOP / unsubscribe / cancel (and
+  similar) sets `opted_out` and cancels every pending task for that lead. The
+  match is whole-message on purpose — "please don't stop sending updates" must
+  not opt a buyer out.
+- `sendText()` / `sendTemplate()` refuse an opted-out lead themselves, so no
+  future phase can forget the check.
+
+### Before go-live
+
+`.env.local` currently holds **placeholder** WhatsApp values plus
+`WHATSAPP_API_BASE` pointing at a local test server. Replace the four Meta
+values and **delete the `WHATSAPP_API_BASE` line**, or live sends will go to
+localhost.
+
+## The AI
+
+Used in exactly three places. Everything else — counting, scheduling, routing —
+is ordinary code.
+
+| Job | What it does | Where |
+|---|---|---|
+| **Meera** | Talks to the buyer | `lib/ai/meera.ts` |
+| **The Reader** | Pulls facts out of the chat | `lib/ai/reader.ts` |
+| The Writer | Chase messages (Phase 6) | not built yet |
+
+- **Scoring is code, not AI** (`lib/scoring.ts`). Same facts in, same score out,
+  and a human can argue with it.
+- **The reply is sent before any scoring.** `RUN_READER` is queued only after
+  the send, so the buyer never waits behind it.
+- **The Reader runs on the first buyer message and every third after that** —
+  not on every one.
+- **If the AI fails the buyer still gets an answer**: a fixed fallback with the
+  sales head's number. He never sees an error.
+- Every call is logged to `ai_calls` with tokens and latency.
+- `GEMINI_MODELS` is a fallback chain — Google's free tier throttles hard, so a
+  busy model falls through to the next.
+
+### ⚠️ The project data is invented
+
+`lib/project-data.ts` holds **placeholder** Ashraya details — plot sizes, prices,
+survey number, approvals. Meera answers only from this, so **every figure must be
+replaced with Landmark's real data** before a real buyer sees it.
+
+Budgets are parsed in English *and* Kannada, Hindi, Telugu and Tamil — a buyer
+writing "45 ಲಕ್ಷ" must score the same as one writing "45 lakh".
+
 ## Two things worth knowing
 
 **Auth is checked twice.** `proxy.ts` (Next 16's renamed middleware) redirects
@@ -158,8 +219,8 @@ also calls `requireUser()` / `requireAdmin()` server-side.
 - [x] **Phase 0** — Foundation: project, schema, auth, time and phone libraries
 - [x] **Phase 1** — Lead intake: webhook, dedupe, manual form, leads table
 - [x] **Phase 2** — Task queue: enqueue, worker, retries, debug page
-- [ ] Phase 3 — WhatsApp
-- [ ] Phase 4 — Meera and The Reader
+- [x] **Phase 3** — WhatsApp: send, signed webhook, delivery status, opt-out
+- [x] **Phase 4** — Meera and The Reader: conversation, scoring, visit booking
 - [ ] Phase 5 — The first-hour ladder
 - [ ] Phase 6 — Site visits and the six chase sequences
 - [ ] Phase 7 — Screens
