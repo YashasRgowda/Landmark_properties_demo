@@ -168,7 +168,7 @@ export class GeminiProvider implements AIProvider {
             model: label,
           };
         } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
+          lastError = `${label}: ${describeNetworkError(error)}`;
           // Network trouble: try the next key, then the next model.
         }
       }
@@ -176,4 +176,28 @@ export class GeminiProvider implements AIProvider {
 
     throw new RetryableAIError(`every Gemini model and key failed — last error: ${lastError}`);
   }
+}
+
+/**
+ * Say what actually went wrong.
+ *
+ * Node reports every transport failure as the word "fetch failed" and hides the
+ * real reason on `error.cause`, so a DNS outage, a reset socket, an expired
+ * certificate and a timeout all read identically in the logs — which is useless
+ * at 11pm when the buyer is waiting and nothing is replying.
+ */
+function describeNetworkError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+    return `gave up waiting after ${REQUEST_TIMEOUT_MS / 1000}s`;
+  }
+
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    const code = (cause as { code?: string }).code;
+    return code ? `${error.message} (${code}: ${cause.message})` : `${error.message} (${cause.message})`;
+  }
+
+  return error.message;
 }

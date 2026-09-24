@@ -42,8 +42,14 @@ Rules:
 - "language" is the language the BUYER writes in.
 - "asked_for_documents" is true if he asked FOR or ABOUT the khata, E-Khata, DC conversion, RERA, the layout plan, the encumbrance certificate or any approval. "Is it E-Khata?" counts. "Send me the khata" counts.
 - "visit_agreed" is true only when he accepted a SPECIFIC day. "I will come sometime" is false. "Sunday 11 AM" is true.
-- "visit_datetime_iso" must be a full ISO timestamp with the +05:30 offset, in the future, and between 10:00 and 18:00 India time. Null if you cannot be certain.
-- "visit_label" is the buyer's own words, such as "Sunday 11 AM".
+
+VISIT TIME — read the conversation to the END before answering these three keys.
+- A conversation MOVES. If several times were discussed, report ONLY the one agreed LAST. An earlier suggestion that was replaced is wrong, even though it appears in the chat.
+- Read it as a negotiation: he suggests, she offers, he settles. The settled time is the answer. "Can we do 6?" ... "5 would suit us better" ... "ok 5 then" means FIVE, not six.
+- If he later asks to move or cancel it, the new time wins. If he cancelled and named nothing new, "visit_agreed" is false.
+- If you cannot tell which of two times was the final one, set "visit_agreed" false and both time keys null. A missing booking is fixable; a wrong one sends him to a locked gate.
+- "visit_datetime_iso" must be a full ISO timestamp with the +05:30 offset, in the future, and between 10:00 and 18:00 India time.
+- "visit_label" is the FINAL agreed slot in the buyer's own words, such as "Sunday 11 AM" — not the first time he floated. It must name the same hour as "visit_datetime_iso".
 - "disqualified" is true only for a broker, a wrong city, someone who has already bought, or someone who says clearly he is not buying.
 - "summary" is one short line for the sales agent. Plain English, whatever language the chat was in.
 

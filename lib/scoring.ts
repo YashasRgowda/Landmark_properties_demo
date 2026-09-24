@@ -92,8 +92,18 @@ export function scoreLead(facts: ReaderResult, entryPriceRupees: number): ScoreB
   if (facts.purpose) add('Purpose known', 1);
 
   const score = reasons.reduce((total, r) => total + r.points, 0);
+  let category = categorise(score);
 
-  return { score, category: categorise(score), reasons };
+  // A man who has agreed a day and an hour to come and stand on the plot is not
+  // a cold lead, whatever else he has or has not said. On the raw table a visit
+  // alone scores 4, which lands in COLD and buries him at the bottom of the
+  // agent's list — the one lead who should be at the top.
+  if (facts.visit_agreed && facts.visit_datetime_iso && category === 'COLD') {
+    category = 'WARM';
+    reasons.push({ signal: 'Floor applied: a booked visit is never COLD', points: 0 });
+  }
+
+  return { score, category, reasons };
 }
 
 export function categorise(score: number): Category {

@@ -56,11 +56,19 @@ describe('parseReaderOutput', () => {
     expect(r?.name).toBeNull();
   });
 
-  it('survives wrong types', () => {
+  it('reads the near-misses rather than discarding them', () => {
+    // These used to fall back to false, which silently lost an agreed visit and
+    // a document request. A model writing "yes" plainly means yes.
     const r = parseReaderOutput('{"visit_agreed":"yes","asked_for_documents":1,"name":123}');
+    expect(r?.visit_agreed).toBe(true);
+    expect(r?.asked_for_documents).toBe(true);
+    expect(r?.name).toBeNull();  // a number is not a name
+  });
+
+  it('still refuses a value it cannot read at all', () => {
+    const r = parseReaderOutput('{"visit_agreed":{"maybe":1},"asked_for_documents":[]}');
     expect(r?.visit_agreed).toBe(false);
     expect(r?.asked_for_documents).toBe(false);
-    expect(r?.name).toBeNull();
   });
 
   it('returns null when there is no JSON at all', () => {

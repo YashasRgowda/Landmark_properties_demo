@@ -46,6 +46,54 @@ export async function sendText(args: SendArgs & { body: string }): Promise<SendR
   }, args.body, null);
 }
 
+/**
+ * The public address Meta fetches attachments from.
+ *
+ * Meta pulls the file itself, so this must be reachable from the internet —
+ * a localhost URL silently yields an empty document. Returns null when we have
+ * no public address, so the caller can skip rather than send a broken file.
+ */
+export function publicBaseUrl(): string | null {
+  const explicit = process.env.PUBLIC_BASE_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() || process.env.VERCEL_URL?.trim();
+  if (vercel) return `https://${vercel.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
+
+  return null;
+}
+
+/**
+ * A PDF, fetched by Meta from our own public URL.
+ *
+ * What may be sent is decided in lib/whatsapp/documents.ts, never by the model.
+ */
+export async function sendDocument(
+  args: SendArgs & { file: string; title: string; caption?: string },
+): Promise<SendResult> {
+  const base = publicBaseUrl();
+  if (!base) {
+    return { ok: false, reason: 'FAILED', error: 'no public base URL; Meta cannot fetch the file' };
+  }
+
+  // A filename Meta will show the buyer — never the internal slug.
+  const filename = `${args.title.replace(/[\\/:*?"<>|]/g, '-')}.pdf`;
+
+  return send(
+    args,
+    {
+      type: 'document',
+      document: {
+        link: `${base}/documents/${args.file}`,
+        filename,
+        ...(args.caption ? { caption: args.caption.slice(0, 1024) } : {}),
+      },
+    },
+    `[document: ${args.title}]`,
+    null,
+  );
+}
+
 /** A pre-approved template. The only thing allowed to open a conversation. */
 export async function sendTemplate(
   args: SendArgs & {

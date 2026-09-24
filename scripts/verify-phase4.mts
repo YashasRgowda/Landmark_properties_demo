@@ -18,6 +18,7 @@ const PHONE = '919000000077';
 let passed = 0;
 let failed = 0;
 const sent: string[] = []; // what the fake Meta was asked to deliver
+const documents: string[] = []; // document links Meta was asked to fetch
 
 function check(label: string, ok: boolean, detail?: string) {
   console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `  — ${detail}`}`);
@@ -166,6 +167,47 @@ async function main() {
   check('never reads more often than the buyer writes', readerRuns[0].n <= buyerMessages[0].n,
     `${readerRuns[0].n} readings for ${buyerMessages[0].n} messages`);
 
+  console.log('\nAsking for papers actually sends the papers');
+  const docsBefore = documents.length;
+  await buyerSays('ಖಾತಾ ಮತ್ತು RERA ಸರ್ಟಿಫಿಕೇಟ್ ಕಳಿಸಿ', 'p4.m8');
+  const docRows = await sql`
+    select body from messages where lead_id = ${lead.id} and direction='outbound'
+    and body like '[document:%'`;
+  check('PDFs were delivered, not just promised', documents.length > docsBefore,
+    `${documents.length - docsBefore} documents sent`);
+  check('each one is logged against the lead', docRows.length > 0, `${docRows.length} rows`);
+  check('the links point at real files', documents.slice(docsBefore).every((l) => l.endsWith('.pdf')),
+    documents.slice(docsBefore).join(', '));
+  for (const link of documents.slice(docsBefore)) {
+    const head = await fetch(link, { method: 'HEAD' }).catch(() => null);
+    check(`  ${link.split('/').pop()} is fetchable`, head?.ok === true, `HTTP ${head?.status ?? 'no response'}`);
+  }
+
+  const seenBefore = documents.slice();
+  await buyerSays('ಖಾತಾ ಮತ್ತೊಮ್ಮೆ ಕಳಿಸಿ', 'p4.m9');
+  // Sending a DIFFERENT document he has not had yet is correct; re-sending one
+  // he already holds is the fault. Only the second is a failure.
+  const resent = documents.slice(seenBefore.length).filter((l) => seenBefore.includes(l));
+  check('no document he already has is sent again', resent.length === 0,
+    `re-sent ${resent.join(', ')}`);
+
+  console.log('\nChanging his mind moves the visit');
+  const [beforeMove] = await sql`select visit_at, label from visits where lead_id = ${lead.id}`;
+  await buyerSays('ಭಾನುವಾರ ಆಗಲ್ಲ. ಶನಿವಾರ ಸಂಜೆ 5 ಗಂಟೆಗೆ ಬರುತ್ತೇನೆ', 'p4.m10');
+  await buyerSays('ಹೌದು, ಶನಿವಾರ 5 PM confirm', 'p4.m11');
+  const afterMove = await sql`select visit_at, label from visits where lead_id = ${lead.id}`;
+  check('still exactly one visit on the books', afterMove.length === 1, `${afterMove.length} visits`);
+  if (afterMove.length === 1 && beforeMove) {
+    const moved = new Date(afterMove[0].visit_at).getTime() !== new Date(beforeMove.visit_at).getTime();
+    const hour = Number(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false,
+    }).format(new Date(afterMove[0].visit_at)));
+    check('the booking moved to the new time', moved,
+      `still ${new Date(beforeMove.visit_at).toISOString()}`);
+    check('it moved to 5 PM, not to some other hour', hour === 17, `hour ${hour} IST`);
+    console.log(`    → ${beforeMove.label} → ${afterMove[0].label} (${hour}:00 IST)`);
+  }
+
   console.log('\nIf the AI fails, the buyer still gets an answer');
   const before = await sql`select count(*)::int as n from messages where lead_id=${lead.id} and direction='outbound'`;
   await fetch(`${BASE}/api/dev/break-ai`, {
@@ -201,7 +243,12 @@ function startFakeMeta(port: number) {
     req.on('end', () => {
       try {
         const parsed = JSON.parse(body);
-        sent.push(parsed?.text?.body ?? '');
+        if (parsed?.type === 'document') {
+          documents.push(String(parsed.document?.link ?? ''));
+          sent.push(`[document] ${parsed.document?.filename ?? ''}`);
+        } else {
+          sent.push(parsed?.text?.body ?? '');
+        }
       } catch { /* ignore */ }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ messages: [{ id: `wamid.p4_${++n}` }] }));

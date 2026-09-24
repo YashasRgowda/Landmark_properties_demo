@@ -5,7 +5,8 @@ import { leads, messages } from '@/lib/db/schema';
 import { composeReply } from '@/lib/ai/meera';
 import { isSignificantMessage } from '@/lib/ai/significance';
 import { enqueue } from '@/lib/queue';
-import { sendText } from './client';
+import { sendDocument, sendText } from './client';
+import { DOCUMENTS, documentsToSend, type DocumentId } from './documents';
 
 /**
  * Reply to a buyer who just wrote in.
@@ -17,14 +18,21 @@ export type RespondResult = {
   sent: boolean;
   usedFallback: boolean;
   readerQueued: boolean;
+  /** Documents attached to this turn, by id. */
+  documentsSent: DocumentId[];
   reason?: string;
 };
 
+/** Outbound rows log a document as "[document: <title>]"; this reads them back. */
+const DOCUMENT_BY_TITLE = new Map<string, DocumentId>(DOCUMENTS.map((d) => [d.title, d.id]));
+
 export async function respondToBuyer(leadId: string): Promise<RespondResult> {
   const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
-  if (!lead) return { sent: false, usedFallback: false, readerQueued: false, reason: 'no such lead' };
+  if (!lead) {
+    return { sent: false, usedFallback: false, readerQueued: false, documentsSent: [], reason: 'no such lead' };
+  }
   if (lead.optedOut) {
-    return { sent: false, usedFallback: false, readerQueued: false, reason: 'lead opted out' };
+    return { sent: false, usedFallback: false, readerQueued: false, documentsSent: [], reason: 'lead opted out' };
   }
 
   const reply = await composeReply(lead);
@@ -35,14 +43,77 @@ export async function respondToBuyer(leadId: string): Promise<RespondResult> {
       sent: false,
       usedFallback: reply.usedFallback,
       readerQueued: false,
+      documentsSent: [],
       reason: `${result.reason}: ${result.error}`,
     };
   }
 
+  // She promised the papers; the papers go out. Meera writes the words, this
+  // sends the files — the model never chooses which. After the text, so a
+  // failed attachment can never cost the buyer his answer.
+  const documentsSent = await sendPromisedDocuments(lead, reply.text);
+
   // Now, and only now, the slow work.
   const readerQueued = await maybeQueueReader(leadId);
 
-  return { sent: true, usedFallback: reply.usedFallback, readerQueued };
+  return { sent: true, usedFallback: reply.usedFallback, readerQueued, documentsSent };
+}
+
+/**
+ * Attach whatever this turn owes the buyer.
+ *
+ * Never throws: a buyer who gets his answer but not his PDF is a small problem,
+ * and one that must not turn the whole task into a retry.
+ */
+async function sendPromisedDocuments(
+  lead: typeof leads.$inferSelect,
+  replyText: string,
+): Promise<DocumentId[]> {
+  try {
+    const [lastInbound] = await db
+      .select({ body: messages.body })
+      .from(messages)
+      .where(and(eq(messages.leadId, lead.id), eq(messages.direction, 'inbound')))
+      .orderBy(desc(messages.sentAt))
+      .limit(1);
+
+    // What he has had already, read back off the log — so a redelivered webhook
+    // or a retried task cannot send the same certificate twice.
+    const previous = await db
+      .select({ body: messages.body })
+      .from(messages)
+      .where(and(eq(messages.leadId, lead.id), eq(messages.direction, 'outbound')))
+      .orderBy(desc(messages.sentAt))
+      .limit(100);
+
+    const alreadySent = previous
+      .map((m) => /^\[document: (.+)\]$/.exec(String(m.body ?? ''))?.[1])
+      .filter((title): title is string => Boolean(title));
+
+    const files = documentsToSend({
+      buyerText: lastInbound?.body ?? null,
+      replyText,
+      alreadySent: alreadySent
+        .map((title) => DOCUMENT_BY_TITLE.get(title))
+        .filter((id): id is DocumentId => Boolean(id)),
+    });
+
+    const delivered: DocumentId[] = [];
+    for (const file of files) {
+      const sent = await sendDocument({
+        lead,
+        file: file.file,
+        title: file.title,
+        idempotencyKey: `doc:${lead.id}:${file.id}`,
+      });
+      if (sent.ok) delivered.push(file.id);
+      else console.error(`[documents] ${file.id} not sent — ${sent.reason}: ${sent.error}`);
+    }
+    return delivered;
+  } catch (error) {
+    console.error('[documents] could not attach', error);
+    return [];
+  }
 }
 
 /**

@@ -213,6 +213,33 @@ const DOCS: { file: string; title: string; lines: Line[] }[] = [
       { text: 'Free pickup and drop from Yelahanka.' },
     ],
   },
+  {
+    file: 'ashraya-encumbrance-certificate.pdf',
+    title: 'Ashraya - Encumbrance Certificate',
+    lines: [
+      ...HEAD('ENCUMBRANCE CERTIFICATE (FORM NO. 15)'),
+      { text: 'Office of the Sub-Registrar, Yelahanka, Bengaluru Urban District' },
+      RULE,
+      { text: 'Property:  Survey No. 148/2 and 149/1, Rajanukunte Hobli,' },
+      { text: '           Yelahanka Taluk, Bengaluru Urban District' },
+      { text: 'Period:    1 January 2011 to 31 August 2026' },
+      { text: 'EC No.:    YLH/EC/2026/04417', gap: 26 },
+      RULE,
+      { text: 'Sl.  Date         Nature of deed        Parties', bold: true },
+      RULE,
+      { text: '1    14-03-2012   Sale Deed             Smt. Lakshmamma to' },
+      { text: '                                       Sri. K. Narayanaswamy' },
+      { text: '2    09-08-2019   Sale Deed             Sri. K. Narayanaswamy to' },
+      { text: '                                       Landmark Properties' },
+      { text: '3    11-08-2024   Conversion Order      Dy. Commissioner, B.U.D.' },
+      RULE,
+      { text: 'No subsisting mortgage, lien, court attachment or other', gap: 24 },
+      { text: 'encumbrance is recorded against the said property for the' },
+      { text: 'period stated above.', gap: 30 },
+      { text: 'Sub-Registrar', bold: true },
+      { text: 'Yelahanka, Bengaluru Urban District' },
+    ],
+  },
 ];
 
 mkdirSync(OUT, { recursive: true });
