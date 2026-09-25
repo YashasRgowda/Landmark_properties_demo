@@ -21,18 +21,60 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** Quota and rate-limit errors. These mean: try another key. */
 const QUOTA_STATUS = new Set([429]);
 
+/** How long a model that says "I am overloaded" is left alone. */
+const BENCH_MS = 3 * 60_000;
+
 export class GeminiProvider implements AIProvider {
   readonly name = 'gemini';
 
   /** Models that answered 400 to thinkingConfig. Learned once, reused after. */
   static readonly modelsWithoutThinking = new Set<string>();
 
-  private models(): string[] {
+  /**
+   * Models that just told us they are overloaded, and when to believe in them
+   * again.
+   *
+   * Without this, a model Google has taken offline is re-tried on every key for
+   * every message, for as long as the outage lasts. Measured on a real evening:
+   * the preferred model answered 503 on all three keys while a lite model
+   * answered in under a second, so each buyer paid several seconds — sometimes
+   * a 60-second worker timeout — for a model that was never going to reply.
+   */
+  private static readonly benched = new Map<string, number>();
+
+  private static bench(model: string) {
+    GeminiProvider.benched.set(model, Date.now() + BENCH_MS);
+    console.warn(`[gemini] ${model} is unwell; resting it for ${BENCH_MS / 60_000} minutes`);
+  }
+
+  private static isBenched(model: string): boolean {
+    const until = GeminiProvider.benched.get(model);
+    if (until === undefined) return false;
+    if (Date.now() >= until) {
+      GeminiProvider.benched.delete(model);
+      return false;
+    }
+    return true;
+  }
+
+  private configuredModels(): string[] {
     const configured = (process.env.GEMINI_MODELS ?? '')
       .split(',')
       .map((m) => m.trim())
       .filter(Boolean);
     return configured.length ? configured : DEFAULT_MODELS;
+  }
+
+  /**
+   * Preferred order, but anything currently resting goes to the back rather
+   * than being dropped — if every model is unwell we still try them all, and a
+   * slow answer beats the canned fallback.
+   */
+  private models(): string[] {
+    const all = this.configuredModels();
+    const healthy = all.filter((m) => !GeminiProvider.isBenched(m));
+    const resting = all.filter((m) => GeminiProvider.isBenched(m));
+    return [...healthy, ...resting];
   }
 
   /**
@@ -89,6 +131,10 @@ export class GeminiProvider implements AIProvider {
     // Best model first, and for each one every key — a key that is out of
     // allowance must not cost us the better model.
     for (const model of this.models()) {
+      // Only rest a model when EVERY key found it unwell. One key out of
+      // allowance says nothing about the model itself.
+      let busyOnEveryKey = 0;
+
       for (const [index, key] of keys.entries()) {
         const label = keys.length > 1 ? `${model} (key ${index + 1})` : model;
 
@@ -128,6 +174,8 @@ export class GeminiProvider implements AIProvider {
             // is a different project and may well get through, so never give up
             // on the better model until every key has been tried.
             if (QUOTA_STATUS.has(res.status) || RETRYABLE_STATUS.has(res.status)) {
+              // 429 is this key's allowance; 5xx is the model itself.
+              if (!QUOTA_STATUS.has(res.status)) busyOnEveryKey++;
               console.warn(`[gemini] ${label} unavailable (${res.status}); trying the next key`);
               continue;
             }
@@ -161,6 +209,9 @@ export class GeminiProvider implements AIProvider {
             usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
           }).usageMetadata;
 
+          // It answered, so it is well again.
+          GeminiProvider.benched.delete(model);
+
           return {
             text,
             inputTokens: usage?.promptTokenCount ?? 0,
@@ -169,9 +220,15 @@ export class GeminiProvider implements AIProvider {
           };
         } catch (error) {
           lastError = `${label}: ${describeNetworkError(error)}`;
+          // A model that times out is as useless as one that says 503.
+          if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+            busyOnEveryKey++;
+          }
           // Network trouble: try the next key, then the next model.
         }
       }
+
+      if (busyOnEveryKey >= keys.length) GeminiProvider.bench(model);
     }
 
     throw new RetryableAIError(`every Gemini model and key failed — last error: ${lastError}`);

@@ -1,6 +1,7 @@
 import 'server-only';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
+import { enqueue } from '@/lib/queue';
 import { leads, touches, type Lead } from '@/lib/db/schema';
 import { canonicalSource } from './source';
 import type { IntakeInput } from './schema';
@@ -93,6 +94,22 @@ export async function intakeLead(input: IntakeArgs): Promise<IntakeOutcome> {
     outcome: 'enquiry',
     notes: describeEnquiry({ source, campaign, project, repeat: !created }),
   });
+
+  // The whole point of the system: a lead from 99acres or MagicBricks gets a
+  // WhatsApp straight away, at ANY hour. Queued rather than sent inline so a
+  // slow Meta call can never make the portal's POST time out — the worker picks
+  // it up within seconds.
+  //
+  // Only for a genuinely new lead. A portal re-posting the same enquiry must
+  // not open the conversation twice.
+  if (created) {
+    await enqueue({
+      type: 'SEND_FIRST_MESSAGE',
+      leadId: lead.id,
+      dueAt: new Date(),
+      idempotencyKey: `first-message:${lead.id}`,
+    });
+  }
 
   return { lead, created, enriched, warnings };
 }

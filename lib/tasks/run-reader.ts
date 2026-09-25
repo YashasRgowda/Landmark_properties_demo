@@ -6,6 +6,7 @@ import { readConversation } from '@/lib/ai/reader';
 import { getProjectData, type ProjectInfo } from '@/lib/project-data';
 import { parseBudgetToRupees, scoreLead } from '@/lib/scoring';
 import { checkVisitTime, describeVisit } from '@/lib/visit-time';
+import { enqueue } from '@/lib/queue';
 import type { TaskHandler } from './types';
 
 /**
@@ -57,6 +58,18 @@ export const runReader: TaskHandler = async ({ task, log }) => {
     .where(eq(leads.id, leadId));
 
   log(`${category} (${score}) — ${reasons.map((r) => `${r.signal} +${r.points}`).join(', ') || 'no signals'}`);
+
+  // Scoring HOT is not the outcome — a person ringing him is. Queued, not done
+  // here, so a missing agent roster cannot fail the scoring that just succeeded.
+  if (category === 'HOT') {
+    await enqueue({
+      type: 'ESCALATE_TO_AGENT',
+      leadId,
+      dueAt: new Date(),
+      idempotencyKey: `escalate:${leadId}`,
+    });
+    log('HOT — escalation to an agent queued');
+  }
 
   if (facts.visit_agreed && facts.visit_datetime_iso) {
     log(await bookVisit(leadId, facts.visit_datetime_iso, facts.visit_label, project));

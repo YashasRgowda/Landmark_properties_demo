@@ -301,6 +301,67 @@ export const chaseStates = pgTable(
 );
 
 /* -------------------------------------------------------------------------
+ * Work for a HUMAN. Deliberately not the `tasks` table: the worker claims
+ * every PENDING task whose due_at has passed, so a call waiting for an agent
+ * would be picked up by a machine and fail. A person's queue also needs things
+ * a machine queue does not — a priority, an owner, and an outcome.
+ * ---------------------------------------------------------------------- */
+
+export const CALL_REASONS = [
+  'PHONE_ONLY',        // not on WhatsApp at all
+  'DELIVERED_UNREAD',  // message landed, not opened
+  'READ_NO_REPLY',     // opened, chose not to answer
+  'HOT_LEAD',          // scored HOT: a human takes over
+  'CHASE',             // a chase sequence step (Phase 6)
+  'NO_SHOW',           // booked a visit and did not come (Phase 6)
+] as const;
+export type CallReason = (typeof CALL_REASONS)[number];
+
+export const CALL_TASK_STATUSES = ['PENDING', 'DONE', 'CANCELLED'] as const;
+export type CallTaskStatus = (typeof CALL_TASK_STATUSES)[number];
+
+export const CALL_OUTCOMES = [
+  'ANSWERED',
+  'NO_ANSWER',
+  'BUSY',
+  'WRONG_NUMBER',
+  'NOT_INTERESTED',
+  'CALLBACK_REQUESTED',
+] as const;
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+/** Parked at the next 9:30 AM, these jump the queue ahead of same-morning work. */
+export const PRIORITY_TOP = 10;
+export const PRIORITY_NORMAL = 0;
+
+export const callTasks = pgTable(
+  'call_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    leadId: uuid('lead_id')
+      .notNull()
+      .references(() => leads.id, { onDelete: 'cascade' }),
+    /** Null until an agent is assigned; the queue is shared in the meantime. */
+    agentId: uuid('agent_id').references(() => agents.id),
+    reason: text('reason').notNull(),
+    priority: integer('priority').notNull().default(0),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    status: text('status').notNull().default('PENDING'),
+    outcome: text('outcome'),
+    notes: text('notes'),
+    /** Makes a retried CREATE_CALL_TASK safe: the same key never inserts twice. */
+    idempotencyKey: text('idempotency_key').unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    // The agent's queue: pending work, top priority first, then oldest due.
+    index('call_tasks_status_priority_due_at_idx').on(t.status, t.priority, t.dueAt),
+    index('call_tasks_lead_id_idx').on(t.leadId),
+  ],
+);
+
+/* -------------------------------------------------------------------------
  * Project data the AI answers from. Editable in the admin panel.
  * ---------------------------------------------------------------------- */
 

@@ -4,6 +4,10 @@ import type { TaskHandler } from './types';
 import { devEcho } from './dev-echo';
 import { processWaEvent } from './whatsapp-event';
 import { runReader } from './run-reader';
+import { sendFirstMessage } from './send-first-message';
+import { checkDelivery } from './check-delivery';
+import { createCallTaskHandler } from './create-call-task';
+import { escalateToAgent } from './escalate-to-agent';
 
 /**
  * Every task type maps to exactly one handler.
@@ -16,13 +20,13 @@ const HANDLERS: Record<TaskType, TaskHandler | null> = {
   DEV_ECHO: devEcho,
   PROCESS_WA_EVENT: processWaEvent,
 
-  SEND_FIRST_MESSAGE: null, // Phase 5
-  CHECK_DELIVERY: null, // Phase 5
-  CREATE_CALL_TASK: null, // Phase 5
+  SEND_FIRST_MESSAGE: sendFirstMessage,
+  CHECK_DELIVERY: checkDelivery,
+  CREATE_CALL_TASK: createCallTaskHandler,
   RUN_READER: runReader,
   SEND_CHASE_MESSAGE: null, // Phase 6
   SEND_VISIT_REMINDER: null, // Phase 6
-  ESCALATE_TO_AGENT: null, // Phase 5
+  ESCALATE_TO_AGENT: escalateToAgent,
   ADVANCE_CHASE: null, // Phase 6
 };
 

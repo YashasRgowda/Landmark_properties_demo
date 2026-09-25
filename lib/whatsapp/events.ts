@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, messages, touches, type Lead } from '@/lib/db/schema';
 import { normalisePhone } from '@/lib/phone';
+import { cancelPendingCallTasks } from '@/lib/calls/create';
 import { cancelPendingTasksForLead } from '@/lib/queue';
 import { isOptOutMessage } from './opt-out';
 import { respondToBuyer } from './respond';
@@ -73,13 +74,16 @@ async function processInbound(event: InboundMessageEvent): Promise<ProcessResult
       })
       .where(eq(leads.id, lead.id));
 
-    // Nothing queued for this lead may ever go out now.
+    // Nothing queued for this lead may ever go out now — and that includes the
+    // agent's call queue, which lives in its own table. A buyer who said STOP
+    // and then gets a sales call has been failed twice.
     const cancelled = await cancelPendingTasksForLead(lead.id);
+    const calls = await cancelPendingCallTasks(lead.id, 'he opted out');
     return {
       handled: true,
       leadId: lead.id,
       optedOut: true,
-      reason: `opted out; ${cancelled} pending task(s) cancelled`,
+      reason: `opted out; ${cancelled} pending task(s) and ${calls} call(s) cancelled`,
     };
   }
 
@@ -93,6 +97,12 @@ async function processInbound(event: InboundMessageEvent): Promise<ProcessResult
       updatedAt: new Date(),
     })
     .where(eq(leads.id, lead.id));
+
+  // He is talking to us, so the call queued because he was NOT talking to us is
+  // moot. Cancelling here rather than at the agent's screen means nobody wastes
+  // a call on a buyer who is already mid-conversation with Meera.
+  const stale = await cancelPendingCallTasks(lead.id, 'he replied on WhatsApp');
+  if (stale > 0) console.log(`[whatsapp] cancelled ${stale} call task(s); the buyer replied`);
 
   // Reply now. Scoring is queued inside respondToBuyer, never before the send.
   try {
