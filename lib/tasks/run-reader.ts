@@ -36,7 +36,12 @@ export const runReader: TaskHandler = async ({ task, log }) => {
 
   const { facts } = result;
   const project = await getProjectData();
-  const entryPrice = parseBudgetToRupees(project.entry_price) ?? 0;
+  // Null, never 0: a zero entry price would qualify every budget on earth.
+  const entryPrice = parseBudgetToRupees(project.entry_price);
+  if (entryPrice === null) {
+    log(`WARNING: entry price ${JSON.stringify(project.entry_price)} could not be read — ` +
+      'no lead can earn the budget points until it is fixed at /admin/project');
+  }
   const { score, category, reasons } = scoreLead(facts, entryPrice);
 
   await db
