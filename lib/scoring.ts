@@ -168,11 +168,31 @@ export function scoreLead(facts: ReaderResult, entryPriceRupees: number | null):
   const score = reasons.reduce((total, r) => total + r.points, 0);
   let category = categorise(score);
 
-  // A man who has agreed a day and an hour to come and stand on the plot is not
-  // a cold lead, whatever else he has or has not said. On the raw table a visit
-  // alone scores 4, which lands in COLD and buries him at the bottom of the
-  // agent's list — the one lead who should be at the top.
-  if (facts.visit_agreed && facts.visit_datetime_iso && category === 'COLD') {
+  const hasVisit = Boolean(facts.visit_agreed && facts.visit_datetime_iso);
+  const canAffordIt =
+    entryPriceRupees !== null && entryPriceRupees > 0 &&
+    budget !== null && budget >= entryPriceRupees;
+
+  /**
+   * Two overrides on the table, both about the same thing: the table adds up
+   * questions asked, and a man who has stopped asking and agreed to come is
+   * past that.
+   *
+   * HOT is not a label, it is an instruction — a person rings him now. The
+   * most valuable call in a plot business is the one that confirms tomorrow's
+   * visit and arranges the pickup, so a buyer who has agreed a day AND can
+   * afford the plot gets it, even though the table stops him at 8. He is not
+   * promoted on the visit alone: without a budget we do not know he can buy.
+   */
+  if (hasVisit && canAffordIt && category !== 'HOT') {
+    category = 'HOT';
+    reasons.push({
+      signal: 'Promoted to HOT: a confirmed visit from a buyer who can afford the plot',
+      points: 0,
+    });
+  } else if (hasVisit && category === 'COLD') {
+    // And a booked visit is never COLD. On the raw table a visit alone scores
+    // 4, which would bury the one lead who should be near the top.
     category = 'WARM';
     reasons.push({ signal: 'Floor applied: a booked visit is never COLD', points: 0 });
   }

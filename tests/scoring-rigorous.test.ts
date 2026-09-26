@@ -186,3 +186,50 @@ describe('the score is stable and explainable', () => {
     expect(r.reasons.filter((x) => x.points > 0)).toHaveLength(3);
   });
 });
+
+describe('a confirmed visit from a buyer who can afford it', () => {
+  // Ravi sir's call: HOT means a human rings him now, and the most valuable
+  // call in a plot business is the one confirming tomorrow's visit.
+  it('THE SCREENSHOT CASE: visit + budget + purpose = 8, but HOT', () => {
+    const r = scoreLead(withFacts({
+      ...VISIT, budget: '45 lakh', purpose: 'own_construction',
+    }), ENTRY);
+    expect(r.score).toBe(8);
+    expect(r.category).toBe('HOT');
+    expect(r.reasons.some((x) => /Promoted to HOT/.test(x.signal))).toBe(true);
+  });
+
+  it('is not promoted on the visit alone — we must know he can buy', () => {
+    expect(scoreLead(withFacts(VISIT), ENTRY).category).toBe('WARM');
+  });
+
+  it('is not promoted when his budget is below the entry price', () => {
+    const r = scoreLead(withFacts({ ...VISIT, budget: '20 lakh' }), ENTRY);
+    expect(r.category).toBe('WARM');
+  });
+
+  it('is not promoted when we cannot read the entry price', () => {
+    // We do not know he can afford it, so we must not claim he can.
+    expect(scoreLead(withFacts({ ...VISIT, budget: '45 lakh' }), null).category).toBe('WARM');
+  });
+
+  it('is not promoted without a visit, however rich he is', () => {
+    expect(scoreLead(withFacts({ budget: '5 crore' }), ENTRY).category).toBe('COLD');
+  });
+
+  it('a disqualified lead is still REJECT', () => {
+    const r = scoreLead(withFacts({
+      ...VISIT, budget: '1 crore', disqualified: true, disqualify_reason: 'broker',
+    }), ENTRY);
+    expect(r.category).toBe('REJECT');
+  });
+
+  it('never double-labels a lead that was already HOT', () => {
+    const r = scoreLead(withFacts({
+      ...VISIT, budget: '45 lakh', asked_for_documents: true, timeline: '0-3 months',
+    }), ENTRY);
+    expect(r.score).toBe(13);
+    expect(r.category).toBe('HOT');
+    expect(r.reasons.filter((x) => /Promoted to HOT/.test(x.signal))).toHaveLength(0);
+  });
+});
