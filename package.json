@@ -22,7 +22,8 @@
     "docs:demo": "tsx scripts/make-demo-docs.mts",
     "verify:language": "tsx --env-file=.env.local scripts/verify-language.mts",
     "verify:behaviour": "tsx --env-file=.env.local scripts/verify-behaviour.mts",
-    "verify:phase5": "tsx --env-file=.env.local scripts/verify-phase5.mts"
+    "verify:phase5": "tsx --env-file=.env.local scripts/verify-phase5.mts",
+    "agent:create": "tsx --env-file=.env.local scripts/create-agent.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
