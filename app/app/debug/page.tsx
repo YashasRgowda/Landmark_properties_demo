@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { desc, sql } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth/require';
@@ -44,6 +45,14 @@ export default async function DebugPage() {
         <h1 className="text-xl font-semibold">Debug</h1>
         <p className="text-sm text-muted-foreground">
           The task queue. Available in development only.
+        </p>
+        <p className="mt-2 flex gap-3 text-sm">
+          <Link href="/app/debug/chat" className="underline">
+            Chat simulator
+          </Link>
+          <Link href="/app/debug/ladder" className="underline">
+            First-hour ladder
+          </Link>
         </p>
       </div>
 
