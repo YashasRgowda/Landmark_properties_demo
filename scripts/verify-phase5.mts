@@ -232,6 +232,7 @@ async function main() {
   const [agent] = await sql`insert into agents (name, email, languages, active)
     values ('Verify Agent', 'verify-agent@landmark.test', ARRAY['kannada','english'], true)
     returning id, name`;
+  void agent;
   await sql`update leads set language = 'kannada', category = 'HOT', score = 11,
             summary = 'Wants a 30x40, budget 45 lakh' where id = ${replier.id}`;
   await sql`insert into tasks (lead_id, type, due_at, status, idempotency_key)
@@ -246,19 +247,29 @@ async function main() {
   }, 30_000);
 
   const [escalated] = await sql`select owner_agent_id, status from leads where id = ${replier.id}`;
-  check('the lead now has an owner', escalated.owner_agent_id === agent.id,
+  check('the lead now has an owner', Boolean(escalated.owner_agent_id),
     `owner=${escalated.owner_agent_id}`);
   check('the lead is marked WITH_AGENT', escalated.status === 'WITH_AGENT', String(escalated.status));
+
+  // Not "my test agent" — there may be several. What matters is the rule: a
+  // Kannada buyer goes to someone who can actually talk to him.
+  const [owner] = escalated.owner_agent_id
+    ? await sql`select name, languages, active from agents where id = ${escalated.owner_agent_id}`
+    : [];
+  check('the owner speaks his language', (owner?.languages ?? []).includes('kannada'),
+    `${owner?.name} speaks ${owner?.languages}`);
+  check('the owner is an active agent', owner?.active === true, String(owner?.active));
 
   const hotCalls = await sql`select * from call_tasks
     where lead_id = ${replier.id} and reason = 'HOT_LEAD'`;
   check('a call was put in front of that agent', hotCalls.length === 1, `${hotCalls.length}`);
   if (hotCalls.length) {
     check('it is top priority', hotCalls[0].priority >= 10, `priority ${hotCalls[0].priority}`);
-    check('it is assigned to the owner', hotCalls[0].agent_id === agent.id, String(hotCalls[0].agent_id));
+    check('the call is assigned to that same owner',
+      hotCalls[0].agent_id === escalated.owner_agent_id, String(hotCalls[0].agent_id));
     check('it briefs the agent before he rings', String(hotCalls[0].notes ?? '').length > 10,
       String(hotCalls[0].notes));
-    console.log(`    → ${agent.name} · "${hotCalls[0].notes}"`);
+    console.log(`    → ${owner?.name} · "${hotCalls[0].notes}"`);
   }
 
   console.log('\nThe same lead posted twice does not message twice');
@@ -279,7 +290,6 @@ async function main() {
     for (const f of failures) console.log(`  · ${f}`);
   }
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} — ${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
 }
 
 const fakeMeta = createServer((req, res) => {
@@ -292,13 +302,27 @@ const fakeMeta = createServer((req, res) => {
   });
 });
 
-fakeMeta.listen(Number(process.env.FAKE_META_PORT ?? 4599), () =>
-  main()
-    .catch(async (e) => {
-      console.error('\nverify failed to run:', e.message);
-      console.error('Is the dev server running? (npm run dev)');
-      await setAi(true);  // never leave the AI pointed at a dead port
-      process.exitCode = 1;
-    })
-    .finally(() => fakeMeta.close()),
-);
+/**
+ * Whatever happens, the AI goes back on.
+ *
+ * This script switches Meera off so the ladder is not waiting on Gemini, and
+ * an earlier version only switched her back on when the run FAILED. A passing
+ * run therefore left the dev server talking to a dead port, and the next person
+ * to open the chat simulator got the fallback message with no idea why.
+ *
+ * `process.exit()` skips `finally`, so the exit code is set rather than taken,
+ * and it is taken only once the cleanup has run.
+ */
+fakeMeta.listen(Number(process.env.FAKE_META_PORT ?? 4599), async () => {
+  try {
+    await main();
+    process.exitCode = failed === 0 ? 0 : 1;
+  } catch (e) {
+    console.error('\nverify failed to run:', (e as Error).message);
+    console.error('Is the dev server running? (npm run dev)');
+    process.exitCode = 1;
+  } finally {
+    await setAi(true);
+    fakeMeta.close();
+  }
+});
