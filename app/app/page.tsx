@@ -1,11 +1,13 @@
 import Link from 'next/link';
-import { and, asc, desc, eq, gte, lt, lte, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { requireUser } from '@/lib/auth/require';
 import { db } from '@/lib/db';
-import { agents, callTasks, chaseStates, leads, visits } from '@/lib/db/schema';
+import { agents, callTasks, chaseStates, leads, tasks, visits } from '@/lib/db/schema';
 import { formatPhone } from '@/lib/phone';
 import { formatIST } from '@/lib/format';
 import { describeVisit, fromIst, istParts } from '@/lib/visit-time';
+import { checkLeadDrought } from '@/lib/lead-drought-check';
+import { queueEnv } from '@/lib/queue-policy';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -70,6 +72,11 @@ export default async function TodayPage() {
       .where(and(eq(callTasks.status, 'PENDING'), lte(callTasks.dueAt, now))),
   ]);
 
+  const drought = await checkLeadDrought(now);
+  const [failedJobs] = session.role === 'admin'
+    ? await db.select({ n: sql<number>`count(*)::int` }).from(tasks).where(and(eq(tasks.status, 'FAILED'),
+        queueEnv() === 'production' ? or(eq(tasks.env, 'production'), isNull(tasks.env)) : eq(tasks.env, queueEnv())))
+    : [{ n: 0 }];
   const who = (name: string | null, phone: string) => name?.trim() || formatPhone(phone);
 
   return (
@@ -80,6 +87,18 @@ export default async function TodayPage() {
           {formatIST(now, "EEEE d MMMM, h:mm a")} · signed in as {session.email}
         </p>
       </div>
+
+      {failedJobs.n > 0 && (
+        <p className="border-destructive/50 bg-destructive/10 rounded-md border p-3 text-sm">
+          <Link href="/app/debug/failed" className="underline">
+            {failedJobs.n} job{failedJobs.n === 1 ? ' has' : 's have'} failed for good — see what and why
+          </Link>
+        </p>
+      )}
+
+      {drought && (
+        <p className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">{drought.message}</p>
+      )}
 
       {lateStage.length > 0 && (
         <div className="space-y-1 rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-sm">

@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -180,6 +181,13 @@ export const leads = pgTable(
     interestedPlot: text('interested_plot'),
     summary: text('summary'), // one line for the agent
     waState: text('wa_state'),
+    /**
+     * NEVER READ OR WRITTEN. How often a lead was contacted is counted from
+     * `touches` wherever it is shown (golden rule 8) — a stored counter drifts
+     * the moment anything touches the lead another way. The column remains
+     * only because dropping it needs a deploy first; tests/no-stored-counter
+     * fails if any code starts using it.
+     */
     attemptCount: integer('attempt_count').notNull().default(0),
     lastContactAt: timestamp('last_contact_at', { withTimezone: true }),
     nextAction: text('next_action'),
@@ -398,6 +406,22 @@ export const callTasks = pgTable(
     index('call_tasks_status_priority_due_at_idx').on(t.status, t.priority, t.dueAt),
     index('call_tasks_lead_id_idx').on(t.leadId),
   ],
+);
+
+/* -------------------------------------------------------------------------
+ * Rate limiting, in the database so every server instance shares one count.
+ * An in-memory counter would be per instance on a serverless host, and so
+ * would never actually limit anything.
+ * ---------------------------------------------------------------------- */
+
+export const rateLimits = pgTable(
+  'rate_limits',
+  {
+    key: text('key').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    hits: integer('hits').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
 );
 
 /* -------------------------------------------------------------------------

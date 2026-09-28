@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { runDueTasks } from '@/lib/tasks/runner';
 import { sweepChases, type SweepReport } from '@/lib/chase-engine';
 import { queueEnv } from '@/lib/queue-policy';
+import { checkLeadDrought } from '@/lib/lead-drought-check';
+import { pruneRateLimits } from '@/lib/rate-limit';
+import type { Drought } from '@/lib/lead-drought';
 import { extractSecret, secretMatches } from '@/lib/security/secret';
 
 /**
@@ -37,9 +40,26 @@ export async function GET(request: Request) {
     }
   }
 
+  // No leads for two office hours usually means a portal feed has broken.
+  // Logged at most twice an hour — the Today screen shows it all the time.
+  let drought: Drought = null;
+  if (queueEnv() === 'production') {
+    try {
+      drought = await checkLeadDrought();
+      if (drought && new Date().getUTCMinutes() % 30 === 0) {
+        console.warn(`[ALERT] ${drought.message} (${drought.quietOfficeMinutes} office minutes)`);
+      }
+    } catch (error) {
+      console.error('[cron/worker] drought check failed', error);
+    }
+  }
+
+  // Old rate-limit counts are useless after a day. Cheap, and never fatal.
+  await pruneRateLimits().catch((error) => console.error('[cron/worker] prune failed', error));
+
   try {
     const report = await runDueTasks(50);
-    return NextResponse.json({ ok: true, ...report, sweep });
+    return NextResponse.json({ ok: true, ...report, sweep, drought });
   } catch (error) {
     console.error('[cron/worker] run failed', error);
     return NextResponse.json({ ok: false, error: 'worker run failed' }, { status: 500 });

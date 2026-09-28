@@ -28,7 +28,9 @@
     "verify:reliability": "tsx --env-file=.env.local scripts/verify-reliability.mts",
     "scheduler:setup": "tsx --env-file=.env.local scripts/setup-scheduler.ts",
     "verify:phase6": "tsx --env-file=.env.local scripts/verify-phase6.mts",
-    "verify:phase7": "tsx --env-file=.env.local scripts/verify-phase7.mts"
+    "verify:phase7": "tsx --env-file=.env.local scripts/verify-phase7.mts",
+    "seed": "tsx --env-file=.env.local scripts/seed-demo.ts",
+    "verify:phase8": "tsx --env-file=.env.local scripts/verify-phase8.mts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

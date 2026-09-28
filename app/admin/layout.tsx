@@ -15,6 +15,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/agents" className="hover:underline">
             Agents
           </Link>
+          <Link href="/app/debug/failed" className="hover:underline">
+            Failed jobs
+          </Link>
           <Link href="/app" className="ml-auto hover:underline">
             Back to app
           </Link>

@@ -53,6 +53,9 @@ async function main() {
   check('missing source is rejected', (await post({ phone: PHONE_LOCAL })).status, 400);
   check('non-JSON body is rejected', (await post('garbage')).status, 400);
 
+  // A fresh rate-limit count, so a second run within the same minute is not refused.
+  await sql`delete from rate_limits where key like ${'intake:phone:' + CANONICAL + '%'}`;
+
   console.log('\nDedupe — the same number in three formats');
   const a = await post({ phone: `+91 ${PHONE_LOCAL.slice(0, 5)} ${PHONE_LOCAL.slice(5)}`, source: '99Acres', name: 'Test Buyer' });
   check('first POST creates the lead (201)', a.status, 201);
@@ -75,15 +78,24 @@ async function main() {
   const t = await sql`select count(*)::int as n from touches where lead_id = ${rows[0]?.id}`;
   check('three touches, one per enquiry', t[0].n, 3);
 
+  // Since Phase 8 one buyer may be posted at most 5 times a minute — more is a
+  // portal stuck in a retry loop, and is refused with 429. So the race is run
+  // against a fresh count, and what must hold is: exactly one lead, and one
+  // touch for every enquiry that was ACCEPTED — none lost, none doubled.
   console.log('\nConcurrency — 10 simultaneous enquiries for one new number');
   await sql`delete from leads where phone = ${CANONICAL}`;
-  await Promise.all(
+  await sql`delete from rate_limits where key like ${'intake:phone:' + CANONICAL + '%'}`;
+  const burst = await Promise.all(
     Array.from({ length: 10 }, () => post({ phone: PHONE_LOCAL, source: '99acres' })),
   );
+  const accepted = burst.filter((r) => r.status === 200 || r.status === 201).length;
+  const refused = burst.filter((r) => r.status === 429).length;
   const race = await sql`select id from leads where phone = ${CANONICAL}`;
   check('still exactly one lead', race.length, 1);
   const rt = await sql`select count(*)::int as n from touches where lead_id = ${race[0]?.id}`;
-  check('ten touches', rt[0].n, 10);
+  check('one touch per accepted enquiry — none lost, none doubled', rt[0].n, accepted);
+  check('a buyer posted 10 times in a second is cut off after 5', accepted === 5 && refused === 5, true);
+  await sql`delete from rate_limits where key like ${'intake:phone:' + CANONICAL + '%'}`;
 
   // Clean up.
   await sql`delete from leads where phone = ${CANONICAL}`;

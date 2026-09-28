@@ -21,7 +21,8 @@ function parseHHMM(value: string, fallback: string): number {
   return hours * 60 + minutes;
 }
 
-function bounds() {
+/** Office hours, as minutes since midnight IST — from the environment. */
+export function officeBounds() {
   return {
     officeOpen: parseHHMM(process.env.OFFICE_OPEN ?? '', '09:30'),
     officeClose: parseHHMM(process.env.OFFICE_CLOSE ?? '', '19:00'),
@@ -44,7 +45,7 @@ function istMinutes(at: Date): number {
  * 19:00 is EVENING, exactly 21:00 is NIGHT.
  */
 export function currentWindow(at: Date): Window {
-  const { officeOpen, officeClose, eveningClose } = bounds();
+  const { officeOpen, officeClose, eveningClose } = officeBounds();
   const minutes = istMinutes(at);
   if (minutes >= officeOpen && minutes < officeClose) return 'OFFICE';
   if (minutes >= officeClose && minutes < eveningClose) return 'EVENING';
@@ -56,7 +57,7 @@ export function currentWindow(at: Date): Window {
  * Used to park call tasks that arrive at night.
  */
 export function nextOfficeOpen(at: Date): Date {
-  const { officeOpen } = bounds();
+  const { officeOpen } = officeBounds();
   const hours = Math.floor(officeOpen / 60);
   const minutes = officeOpen % 60;
 

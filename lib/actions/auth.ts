@@ -1,5 +1,8 @@
 'use server';
 
+import { headers } from 'next/headers';
+import { hitAll } from '@/lib/rate-limit';
+import { clientIp, LIMITS } from '@/lib/rate-limit-policy';
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -35,6 +38,19 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   const { email, password, next } = parsed.data;
+
+  // Stop password guessing: per address and per account, counted before the
+  // password is even checked. Same message whether or not the account exists.
+  const h = await headers();
+  const ip = clientIp(h.get('x-forwarded-for'), h.get('x-real-ip'));
+  const limited = await hitAll([
+    [LIMITS.loginPerIp, ip],
+    [LIMITS.loginPerEmail, email.toLowerCase()],
+  ]);
+  if (!limited.allowed) {
+    const minutes = Math.ceil(limited.retryAfter / 60);
+    return { error: `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` };
+  }
 
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
