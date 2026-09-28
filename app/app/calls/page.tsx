@@ -60,7 +60,7 @@ export default async function CallsPage() {
   const later = queue.filter((r) => r.dueAt.getTime() > now);
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Calls</h1>
         <p className="text-muted-foreground text-sm">
@@ -79,7 +79,7 @@ export default async function CallsPage() {
 
       {due.length > 0 && <CallList title="Ring now" rows={due} />}
       {later.length > 0 && <CallList title="Later today" rows={later} muted />}
-    </main>
+    </div>
   );
 }
 

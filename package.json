@@ -27,7 +27,8 @@
     "lead:reset": "tsx --env-file=.env.local scripts/reset-lead.ts",
     "verify:reliability": "tsx --env-file=.env.local scripts/verify-reliability.mts",
     "scheduler:setup": "tsx --env-file=.env.local scripts/setup-scheduler.ts",
-    "verify:phase6": "tsx --env-file=.env.local scripts/verify-phase6.mts"
+    "verify:phase6": "tsx --env-file=.env.local scripts/verify-phase6.mts",
+    "verify:phase7": "tsx --env-file=.env.local scripts/verify-phase7.mts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

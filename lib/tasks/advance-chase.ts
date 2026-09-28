@@ -94,9 +94,12 @@ export const advanceChase: TaskHandler = async ({ task, log }) => {
     let ownerId = lead.ownerAgentId;
 
     if (state === 'LATE_STAGE') {
-      // He was close to buying: it goes to his owner, and he gets one if he has none.
+      // He was close to buying: it goes to his owner — an active one — and he
+      // gets one if he has none.
+      const roster = await agentsWithLoad();
+      if (ownerId && !roster.some((a) => a.id === ownerId)) ownerId = null;
       if (!ownerId) {
-        const pick = pickAgent(await agentsWithLoad(), lead.language);
+        const pick = pickAgent(roster, lead.language);
         if (pick) {
           ownerId = pick.agent.id;
           await db.update(leads).set({ ownerAgentId: ownerId }).where(eq(leads.id, lead.id));

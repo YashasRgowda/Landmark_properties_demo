@@ -73,7 +73,7 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
   const callsMade = allTouches.filter((t) => t.channel === 'call').length;
 
   return (
-    <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{lead.name?.trim() || formatPhone(lead.phone)}</h1>
@@ -235,7 +235,7 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
       <Link href="/app/leads" className="text-muted-foreground text-sm hover:underline">
         ← All leads
       </Link>
-    </main>
+    </div>
   );
 }
 

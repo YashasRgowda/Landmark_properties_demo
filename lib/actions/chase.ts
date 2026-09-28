@@ -29,6 +29,8 @@ function runQueueSoon() {
 function leadPage(leadId: string) {
   revalidatePath(`/app/leads/${leadId}`);
   revalidatePath('/app/calls');
+  revalidatePath('/app/visits');
+  revalidatePath('/app');
 }
 
 /**

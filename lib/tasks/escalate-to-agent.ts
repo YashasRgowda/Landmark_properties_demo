@@ -39,7 +39,11 @@ export const escalateToAgent: TaskHandler = async ({ task, log }) => {
 
   // Keep an owner he already has; moving a hot lead between agents mid-chase
   // loses whatever rapport the first one built.
-  let ownerId = lead.ownerAgentId;
+  // ...unless that owner has since been deactivated: a hot lead's call must
+  // never wait on someone who has left.
+  let ownerId = lead.ownerAgentId && roster.some((a) => a.id === lead.ownerAgentId)
+    ? lead.ownerAgentId
+    : null;
   let why = 'already owned';
 
   if (!ownerId) {
