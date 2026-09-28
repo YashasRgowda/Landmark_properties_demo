@@ -47,11 +47,34 @@ async function deliver(payload: unknown, secret?: string) {
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
+/**
+ * Run the worker, then wait until every local WhatsApp job has finished.
+ *
+ * The webhook also processes its own event just after responding, so the job
+ * may be mid-run in the background when this call returns. Checking at that
+ * instant reads the state from one step earlier — correct behaviour by the
+ * server, and a race in the test. So the test waits for the queue to settle.
+ */
 async function runWorker() {
-  const res = await fetch(`${BASE}/api/cron/worker`, {
-    headers: { 'x-cron-secret': process.env.CRON_SECRET! },
-  });
-  return res.json();
+  const settle = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  try {
+    const deadline = Date.now() + 15_000;
+    let report: unknown = null;
+    while (Date.now() < deadline) {
+      report = await fetch(`${BASE}/api/cron/worker`, {
+        headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+      }).then((r) => r.json());
+      const [busy] = await settle`
+        select count(*)::int as n from tasks
+        where type = 'PROCESS_WA_EVENT' and env = 'local'
+          and (status = 'RUNNING' or (status = 'PENDING' and due_at <= now()))`;
+      if (busy.n === 0) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return report;
+  } finally {
+    await settle.end();
+  }
 }
 
 const msgEvent = (id: string, body: string) => ({
@@ -91,11 +114,24 @@ const statusEvent = (id: string, status: string, errorMessage?: string) => ({
   ],
 });
 
+/**
+ * This phase tests WhatsApp plumbing, not what Meera says. With the AI pointed
+ * at a dead port she falls back instantly, so nothing here waits on Google —
+ * a slow Google once made this test close its fake WhatsApp before a reply had
+ * been sent. The AI is always switched back on at the end.
+ */
+async function setAi(working: boolean) {
+  await fetch(`${BASE}/api/dev/break-ai${working ? '?restore=1' : ''}`, {
+    method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+  }).catch(() => null);
+}
+
 async function main() {
+  await setAi(false);
   const sql = postgres(process.env.DATABASE_URL!, { max: 4, prepare: false });
   const clean = () => sql`delete from leads where phone = ${PHONE}`;
   await clean();
-  await sql`delete from tasks where type = 'PROCESS_WA_EVENT'`;
+  await sql`delete from tasks where type = 'PROCESS_WA_EVENT' and env = 'local'`;
 
   console.log('\nWebhook verification (Meta subscribing)');
   const challenge = 'challenge-12345';
@@ -128,8 +164,14 @@ async function main() {
 
   console.log('\nInbound message, once the worker runs');
   await runWorker();
-  const [lead] = await sql`select * from leads where phone = ${PHONE}`;
+  // The webhook finishes the work just after responding, so allow a moment.
+  let lead: Record<string, any> | undefined;
+  for (let i = 0; i < 40 && !lead; i++) {
+    [lead] = await sql`select * from leads where phone = ${PHONE}`;
+    if (!lead) await new Promise((r) => setTimeout(r, 250));
+  }
   check('a lead now exists', Boolean(lead), true);
+  if (!lead) throw new Error('no lead was created, so the rest cannot run');
   check('marked as replied', lead?.wa_state, 'REPLIED');
   check('status is CHATTING', lead?.status, 'CHATTING');
   const [msg] = await sql`select * from messages where wa_message_id = 'wamid.in1'`;
@@ -182,9 +224,9 @@ async function main() {
   console.log('\nSTOP opts the buyer out and cancels queued work');
   await sql`update leads set opted_out = false, wa_state = 'REPLIED' where id = ${lead.id}`;
   await sql`
-    insert into tasks (lead_id, type, due_at, status)
-    values (${lead.id}, 'DEV_ECHO', now() + interval '1 hour', 'PENDING'),
-           (${lead.id}, 'DEV_ECHO', now() + interval '2 hours', 'PENDING')`;
+    insert into tasks (lead_id, type, due_at, status, env)
+    values (${lead.id}, 'DEV_ECHO', now() + interval '1 hour', 'PENDING', 'local'),
+           (${lead.id}, 'DEV_ECHO', now() + interval '2 hours', 'PENDING', 'local')`;
 
   await deliver(msgEvent('wamid.stop', 'STOP'));
   await runWorker();
@@ -193,8 +235,11 @@ async function main() {
   const [stillPending] = await sql`
     select count(*)::int as n from tasks where lead_id = ${lead.id} and status = 'PENDING'`;
   check('no pending tasks remain', stillPending.n, 0);
+  // The two jobs planted above. Anything else pending for him — a scoring job
+  // waiting to retry, say — is rightly cancelled too, so it is not counted here.
   const [cancelled] = await sql`
-    select count(*)::int as n from tasks where lead_id = ${lead.id} and status = 'CANCELLED'`;
+    select count(*)::int as n from tasks
+    where lead_id = ${lead.id} and status = 'CANCELLED' and type = 'DEV_ECHO'`;
   check('they were cancelled, not deleted', cancelled.n, 2);
 
   console.log('\nAn opted-out buyer can never be messaged again');
@@ -229,11 +274,11 @@ async function main() {
   check('an outbound touch was written', outTouch.n >= 1, true);
 
   await clean();
-  await sql`delete from tasks where type = 'PROCESS_WA_EVENT'`;
+  await sql`delete from tasks where type = 'PROCESS_WA_EVENT' and env = 'local'`;
   await sql.end();
 
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} — ${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  process.exitCode = failed === 0 ? 0 : 1;
 }
 
 /** A stand-in for graph.facebook.com so sending can be tested with no credentials. */
@@ -253,12 +298,15 @@ function startFakeMeta(port: number) {
 }
 
 const port = Number(process.env.FAKE_META_PORT ?? 4599);
-startFakeMeta(port).then((stop) =>
-  main()
-    .catch((e) => {
-      console.error('\nverify failed to run:', e.message);
-      console.error('Is the dev server running? (npm run dev)');
-      process.exitCode = 1;
-    })
-    .finally(stop),
-);
+startFakeMeta(port).then(async (stop) => {
+  try {
+    await main();
+  } catch (e) {
+    console.error('\nverify failed to run:', (e as Error).message);
+    console.error('Is the dev server running? (npm run dev)');
+    process.exitCode = 1;
+  } finally {
+    await setAi(true);
+    stop();
+  }
+});

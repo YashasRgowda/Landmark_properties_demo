@@ -11,6 +11,13 @@ export type CompleteOptions = {
   json?: boolean;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Epoch milliseconds by which the answer must be back, whatever happens.
+   * The provider stops trying models once too little time is left, so the
+   * caller always has time to fall back. Without it, a slow AI outran the
+   * hosting platform's limit and the buyer got nothing — not even the fallback.
+   */
+  deadlineAt?: number;
 };
 
 export type CompleteResult = {

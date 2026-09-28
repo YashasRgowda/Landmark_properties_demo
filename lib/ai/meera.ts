@@ -151,10 +151,27 @@ export async function loadHistory(leadId: string): Promise<AIMessage[]> {
 export type MeeraReply = { text: string; usedFallback: boolean };
 
 /**
+ * The most time a reply may take to compose, AI and all. After this the buyer
+ * gets the fallback — a plain, honest handover to the sales head — instead.
+ *
+ * This is the promise the whole system rests on: every message is answered.
+ * Without a budget, a slow AI kept retrying past the hosting platform's
+ * 60-second limit, the process was killed, and the buyer received nothing at
+ * all — not even the fallback that exists for exactly that case.
+ */
+export const REPLY_BUDGET_MS = 25_000;
+
+/** Not worth starting another attempt with less than this left. */
+const MIN_ATTEMPT_MS = 4_000;
+
+/**
  * Work out what to say next. Sending is the caller's job — that split is what
  * keeps the reply fast and the scoring out of the way (golden rule 3).
  */
 export async function composeReply(lead: Lead): Promise<MeeraReply> {
+  const deadlineAt = Date.now() + REPLY_BUDGET_MS;
+  const timeLeft = () => deadlineAt - Date.now();
+
   const project = await getProjectData();
 
   const history = await loadHistory(lead.id);
@@ -186,12 +203,17 @@ export async function composeReply(lead: Lead): Promise<MeeraReply> {
   let best: string | null = null;
 
   for (const [index, attempt] of attempts.entries()) {
+    if (timeLeft() < MIN_ATTEMPT_MS) {
+      console.warn(`[meera] out of time after ${index} attempt(s); falling back`);
+      break;
+    }
     try {
       const result = await runAI('meera', lead.id, {
         system,
         messages: attempt.messages,
         maxTokens: 1200,
         temperature: attempt.temperature,
+        deadlineAt,
       });
 
       const raw = tidy(result.text.trim());
@@ -216,8 +238,8 @@ export async function composeReply(lead: Lead): Promise<MeeraReply> {
   }
 
   // The words were right, the script was not. Translating keeps the answer.
-  if (best) {
-    const repaired = await translateTo(lead.id, best, language);
+  if (best && timeLeft() >= MIN_ATTEMPT_MS) {
+    const repaired = await translateTo(lead.id, best, language, deadlineAt);
     if (repaired) return { text: repaired, usedFallback: false };
   }
 
@@ -233,6 +255,7 @@ async function translateTo(
   leadId: string,
   text: string,
   language: Language,
+  deadlineAt: number,
 ): Promise<string | null> {
   if (language === 'english') {
     // Nothing to translate into — strip is not safe, so give up.
@@ -250,6 +273,7 @@ Keep the same line breaks. Do not add or remove anything. Reply with the transla
       messages: [{ role: 'user', content: text }],
       maxTokens: 1200,
       temperature: 0,
+      deadlineAt,
     });
 
     const translated = repairConfusableScript(tidy(result.text.trim()), language);

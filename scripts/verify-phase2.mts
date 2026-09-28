@@ -34,7 +34,9 @@ async function worker(secret: string | null = process.env.CRON_SECRET ?? null) {
 
 async function main() {
   const sql = postgres(process.env.DATABASE_URL!, { max: 4, prepare: false });
-  const clean = () => sql`delete from tasks where type = 'DEV_ECHO'`;
+  // Local jobs only: this database is shared with production, and a broad
+  // delete here could wipe a real buyer's queued message.
+  const clean = () => sql`delete from tasks where type = 'DEV_ECHO' and env = 'local'`;
   await clean();
 
   console.log('\nAuth');
@@ -44,9 +46,9 @@ async function main() {
 
   console.log('\nA task does not run before it is due');
   const [t1] = await sql`
-    insert into tasks (type, payload, due_at, idempotency_key)
+    insert into tasks (type, payload, due_at, idempotency_key, env)
     values ('DEV_ECHO', ${sql.json({ message: 'due in 10s' })}, now() + interval '10 seconds',
-            ${KEY_PREFIX + 'due'})
+            ${KEY_PREFIX + 'due'}, 'local')
     returning id`;
   const early = await worker();
   check('worker claims nothing', early.json.claimed, 0);
@@ -70,8 +72,8 @@ async function main() {
   const key = KEY_PREFIX + 'once';
   for (let i = 0; i < 3; i++) {
     await sql`
-      insert into tasks (type, due_at, idempotency_key)
-      values ('DEV_ECHO', now() + interval '1 hour', ${key})
+      insert into tasks (type, due_at, idempotency_key, env)
+      values ('DEV_ECHO', now() + interval '1 hour', ${key}, 'local')
       on conflict (idempotency_key) do nothing`;
   }
   const [dupes] = await sql`select count(*)::int as n from tasks where idempotency_key = ${key}`;
@@ -80,8 +82,8 @@ async function main() {
   console.log('\nTwo workers never take the same task');
   await clean();
   await sql`
-    insert into tasks (type, payload, due_at)
-    select 'DEV_ECHO', ${sql.json({ message: 'race' })}, now() - interval '1 second'
+    insert into tasks (type, payload, due_at, env)
+    select 'DEV_ECHO', ${sql.json({ message: 'race' })}, now() - interval '1 second', 'local'
     from generate_series(1, 20)`;
   const runs = await Promise.all([worker(), worker(), worker()]);
   const totalClaimed = runs.reduce((sum, r) => sum + (r.json?.claimed ?? 0), 0);
@@ -95,8 +97,8 @@ async function main() {
   console.log('\nA failing task retries, then gives up');
   await clean();
   const [bad] = await sql`
-    insert into tasks (type, payload, due_at)
-    values ('DEV_ECHO', ${sql.json({ fail: true, message: 'boom' })}, now() - interval '1 second')
+    insert into tasks (type, payload, due_at, env)
+    values ('DEV_ECHO', ${sql.json({ fail: true, message: 'boom' })}, now() - interval '1 second', 'local')
     returning id`;
 
   const failRun = await worker();
@@ -122,18 +124,19 @@ async function main() {
   console.log('\nA crashed worker cannot strand a task');
   await clean();
   const [stuck] = await sql`
-    insert into tasks (type, due_at, status, attempts, started_at)
-    values ('DEV_ECHO', now() - interval '1 hour', 'RUNNING', 1, now() - interval '30 minutes')
+    insert into tasks (type, due_at, status, attempts, started_at, env)
+    values ('DEV_ECHO', now() - interval '1 hour', 'RUNNING', 1, now() - interval '30 minutes', 'local')
     returning id`;
   const rescueRun = await worker();
   check('it is rescued and re-run', rescueRun.json.rescued >= 1, true);
   const [rescued] = await sql`select status from tasks where id = ${stuck.id}`;
   check('it finishes', rescued.status, 'DONE');
 
+  // ADVANCE_CHASE is built in Phase 6. (This used SEND_FIRST_MESSAGE until
+  // Phase 5 built that, which quietly turned this check into a false failure.)
   console.log('\nUnbuilt task types fail loudly');
-  await sql`delete from tasks where type = 'SEND_FIRST_MESSAGE'`;
   const [future] = await sql`
-    insert into tasks (type, due_at) values ('SEND_FIRST_MESSAGE', now() - interval '1 second')
+    insert into tasks (type, due_at, env) values ('ADVANCE_CHASE', now() - interval '1 second', 'local')
     returning id`;
   await worker();
   const [notImpl] = await sql`select status, last_error from tasks where id = ${future.id}`;

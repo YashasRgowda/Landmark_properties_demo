@@ -1,3 +1,4 @@
+import { queueEnv } from '../queue-policy';
 import {
   boolean,
   index,
@@ -227,6 +228,13 @@ export const messages = pgTable(
     mediaUrl: text('media_url'),
     templateName: text('template_name'),
     waMessageId: text('wa_message_id').unique(), // Meta's id — idempotency
+    /**
+     * On Meera's replies: the newest buyer message she had seen when she wrote
+     * it. That is what "has this message been answered?" is decided from — a
+     * reply being newer than a message does not mean it answered it, because
+     * the buyer can write again while she is composing.
+     */
+    replyToWaMessageId: text('reply_to_wa_message_id'),
     status: text('status'),
     sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -252,6 +260,12 @@ export const tasks = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     lastError: text('last_error'),
     idempotencyKey: text('idempotency_key').unique(),
+    /**
+     * The deployment that owns this task — see queueEnv(). Set on every insert
+     * made through Drizzle. Rows from before this column existed are NULL and
+     * belong to production.
+     */
+    env: text('env').$defaultFn(() => queueEnv()),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('tasks_status_due_at_idx').on(t.status, t.dueAt)],

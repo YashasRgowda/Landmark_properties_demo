@@ -1,10 +1,12 @@
 'use server';
 
+import { after } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/auth/require';
 import { parseIntake } from '@/lib/leads/schema';
 import { intakeLead } from '@/lib/leads/intake';
+import { runDueTasks } from '@/lib/tasks/runner';
 
 export type AddLeadState = {
   errors?: string[];
@@ -33,6 +35,18 @@ export async function addLead(_prev: AddLeadState, formData: FormData): Promise<
   try {
     const result = await intakeLead(parsed.value);
     leadId = result.lead.id;
+
+    // Same as the portal webhook: the opening WhatsApp goes out now, not
+    // whenever something next happens to run the queue.
+    if (result.created) {
+      after(async () => {
+        try {
+          await runDueTasks(10, { budgetMs: 54_000 });
+        } catch (error) {
+          console.error('[addLead] could not send the opening message', error);
+        }
+      });
+    }
   } catch (error) {
     console.error('[addLead] failed', error);
     return { errors: ['Could not save the lead. Try again.'] };

@@ -1,6 +1,10 @@
 import { requireUser } from '@/lib/auth/require';
 import { AddLeadForm } from './add-lead-form';
 
+/** Room for the opening WhatsApp, sent just after the form is saved. */
+export const maxDuration = 60;
+
+
 export const metadata = { title: 'Add lead · Landmark System 1' };
 
 export default async function NewLeadPage() {

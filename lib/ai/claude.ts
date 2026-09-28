@@ -31,7 +31,12 @@ export class ClaudeProvider implements AIProvider {
 
     const res = await fetch(`${base}/v1/messages`, {
       method: 'POST',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // The caller's deadline wins: a reply must leave time for the fallback.
+      signal: AbortSignal.timeout(
+        opts.deadlineAt === undefined
+          ? REQUEST_TIMEOUT_MS
+          : Math.max(1_000, Math.min(REQUEST_TIMEOUT_MS, opts.deadlineAt - Date.now())),
+      ),
       headers: {
         'x-api-key': key,
         'anthropic-version': '2023-06-01',

@@ -62,8 +62,8 @@ async function main() {
     return String(r[0]?.body ?? '');
   };
   const scoreNow = async () => {
-    await sql`insert into tasks (lead_id, type, due_at, idempotency_key)
-              values (${await leadId()}, 'RUN_READER', now(), ${'beh:' + Date.now() + Math.random()})`;
+    await sql`insert into tasks (lead_id, type, due_at, idempotency_key, env)
+              values (${await leadId()}, 'RUN_READER', now(), ${'beh:' + Date.now() + Math.random()}, 'local')`;
     await fetch(`${BASE}/api/cron/worker`, { headers: { 'x-cron-secret': process.env.CRON_SECRET! } });
   };
 

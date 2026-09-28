@@ -5,6 +5,7 @@ import {
   failTask,
   reapStuckTasks,
 } from '@/lib/queue';
+import { TASK_TIMEOUT_MS } from '@/lib/queue-policy';
 import { handlerFor } from './index';
 
 /**
@@ -16,8 +17,20 @@ import { handlerFor } from './index';
  *  - A handler that hangs must not hold the whole run. Each is given a deadline.
  */
 
-/** A single task may not take longer than this. */
-const TASK_TIMEOUT_MS = 60_000;
+/**
+ * How long a worker run may take when the caller does not say. Just inside a
+ * 60-second serverless function, with room for the response.
+ */
+const DEFAULT_BUDGET_MS = 54_000;
+
+export type RunOptions = {
+  /**
+   * Stop starting new tasks once less than one task's worth of time is left.
+   * A task the platform kills halfway leaves no error, no retry and no reply —
+   * so it is far better never to start it.
+   */
+  budgetMs?: number;
+};
 
 export type TaskOutcome = {
   id: string;
@@ -41,8 +54,9 @@ export type WorkerReport = {
   tasks: TaskOutcome[];
 };
 
-export async function runDueTasks(limit = 50): Promise<WorkerReport> {
+export async function runDueTasks(limit = 50, options: RunOptions = {}): Promise<WorkerReport> {
   const startedAt = Date.now();
+  const deadline = startedAt + (options.budgetMs ?? DEFAULT_BUDGET_MS);
 
   // Rescue anything a dead worker left behind before claiming new work.
   let rescued = 0;
@@ -54,10 +68,17 @@ export async function runDueTasks(limit = 50): Promise<WorkerReport> {
     console.error('[worker] could not rescue stuck tasks', error);
   }
 
-  const claimed = await claimDueTasks(limit);
+  const claimed: { id: string }[] = [];
   const outcomes: TaskOutcome[] = [];
 
-  for (const task of claimed) {
+  // One task at a time, highest priority first, and only while there is time
+  // to finish it. Anything not started stays PENDING for the next run, rather
+  // than being claimed and then stranded.
+  while (claimed.length < limit && deadline - Date.now() >= TASK_TIMEOUT_MS) {
+    const [task] = await claimDueTasks(1);
+    if (!task) break;
+    claimed.push(task);
+
     const logs: string[] = [];
     const log = (message: string) => logs.push(message);
 

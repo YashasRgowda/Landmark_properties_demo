@@ -23,6 +23,40 @@ export type RespondResult = {
   reason?: string;
 };
 
+/** Pause before the one on-the-spot retry of a reply WhatsApp did not accept. */
+const SEND_RETRY_DELAY_MS = 1_500;
+
+/**
+ * Meta's id for the buyer's newest message. Ties on the timestamp — Meta's is
+ * to the second — are broken by the id, so every caller agrees on which one is
+ * newest and exactly one task answers.
+ */
+export async function latestInboundId(leadId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ waMessageId: messages.waMessageId })
+    .from(messages)
+    .where(and(eq(messages.leadId, leadId), eq(messages.direction, 'inbound')))
+    .orderBy(desc(messages.sentAt), desc(messages.waMessageId))
+    .limit(1);
+  return row?.waMessageId ?? null;
+}
+
+/** True when a reply exists that was written having seen this buyer message. */
+export async function isAnswered(leadId: string, waMessageId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.leadId, leadId),
+        eq(messages.direction, 'outbound'),
+        eq(messages.replyToWaMessageId, waMessageId),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
 /** Outbound rows log a document as "[document: <title>]"; this reads them back. */
 const DOCUMENT_BY_TITLE = new Map<string, DocumentId>(DOCUMENTS.map((d) => [d.title, d.id]));
 
@@ -35,10 +69,30 @@ export async function respondToBuyer(leadId: string): Promise<RespondResult> {
     return { sent: false, usedFallback: false, readerQueued: false, documentsSent: [], reason: 'lead opted out' };
   }
 
+  // What she is about to answer. Recorded on the reply, so a message the buyer
+  // sends while she is composing is not mistaken for already answered.
+  const answering = await latestInboundId(leadId);
+
   const reply = await composeReply(lead);
-  const result = await sendText({ lead, body: reply.text });
+
+  let result = await sendText({ lead, body: reply.text, replyTo: answering });
+
+  // A dropped connection to WhatsApp is usually over in a moment — try once
+  // more on the spot rather than leaving him waiting for a retry.
+  if (!result.ok && result.reason === 'FAILED') {
+    console.warn(`[whatsapp] reply not accepted (${result.error}); trying once more`);
+    await new Promise((resolve) => setTimeout(resolve, SEND_RETRY_DELAY_MS));
+    result = await sendText({ lead, body: reply.text, replyTo: answering });
+  }
 
   if (!result.ok) {
+    if (result.reason === 'FAILED') {
+      // Still not accepted. Throwing is deliberate: it makes the task retry.
+      // The earlier version returned quietly here, the task was marked done,
+      // and the buyer's reply was lost for good.
+      throw new Error(`WhatsApp did not accept the reply: ${result.error}`);
+    }
+    // Not on WhatsApp, or opted out: permanent, and retrying cannot help.
     return {
       sent: false,
       usedFallback: reply.usedFallback,

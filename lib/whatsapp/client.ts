@@ -23,6 +23,11 @@ type SendArgs = {
   lead: Pick<Lead, 'id' | 'phone' | 'optedOut'>;
   /** Used to make a retry safe: the same key never sends twice. */
   idempotencyKey?: string | null;
+  /**
+   * On a reply to the buyer: Meta's id for the newest message Meera had seen.
+   * Stored with the row, and it is how a message is known to be answered.
+   */
+  replyTo?: string | null;
 };
 
 function config() {
@@ -197,6 +202,7 @@ async function send(
       body: bodyForLog,
       templateName,
       waMessageId,
+      replyToWaMessageId: args.replyTo ?? null,
       status: 'sent',
     })
     .returning();

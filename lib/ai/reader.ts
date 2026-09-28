@@ -55,6 +55,9 @@ VISIT TIME — read the conversation to the END before answering these three key
 
 Reply with the JSON object only.`;
 
+/** Longest a scoring pass may spend waiting on the AI. */
+const READER_BUDGET_MS = 30_000;
+
 export type ReadResult = {
   facts: ReaderResult;
   usedFallback: boolean;
@@ -82,6 +85,9 @@ export async function readConversation(leadId: string): Promise<ReadResult | nul
     json: true,
     maxTokens: 1500,
     temperature: 0,
+    // Scoring runs in the background, but in the same 60-second function as
+    // the reply. It must finish — or give up and retry later — well inside it.
+    deadlineAt: Date.now() + READER_BUDGET_MS,
   });
 
   const facts = parseReaderOutput(result.text);

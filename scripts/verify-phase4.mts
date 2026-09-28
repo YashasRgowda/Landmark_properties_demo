@@ -47,11 +47,30 @@ async function buyerSays(text: string, id: string) {
   await runWorker();
 }
 
+/**
+ * Run the worker, then wait until nothing local is running or due. The webhook
+ * finishes its own work just after responding, so checking the instant the
+ * worker call returns can read a state one step old.
+ */
 async function runWorker() {
-  const res = await fetch(`${BASE}/api/cron/worker`, {
-    headers: { 'x-cron-secret': process.env.CRON_SECRET! },
-  });
-  return res.json();
+  const settle = postgres(process.env.DATABASE_URL!, { max: 1, prepare: false });
+  try {
+    const deadline = Date.now() + 60_000;   // real AI: a reply may take up to 25s
+    let report: unknown = null;
+    while (Date.now() < deadline) {
+      report = await fetch(`${BASE}/api/cron/worker`, {
+        headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+      }).then((r) => r.json());
+      const [busy] = await settle`
+        select count(*)::int as n from tasks
+        where env = 'local' and (status = 'RUNNING' or (status = 'PENDING' and due_at <= now()))`;
+      if (busy.n === 0) break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return report;
+  } finally {
+    await settle.end();
+  }
 }
 
 const KANNADA = /[ಀ-೿]/;
@@ -61,7 +80,8 @@ async function main() {
   const sql = postgres(process.env.DATABASE_URL!, { max: 4, prepare: false });
   const clean = async () => {
     await sql`delete from leads where phone = ${PHONE}`;
-    await sql`delete from tasks where type in ('PROCESS_WA_EVENT','RUN_READER')`;
+    // Local jobs only — never a real buyer's queued message on the shared database.
+    await sql`delete from tasks where type in ('PROCESS_WA_EVENT','RUN_READER') and env = 'local'`;
   };
   await clean();
 
@@ -156,8 +176,11 @@ async function main() {
   console.log(`    → ${calls.length} calls · ${totalIn} in / ${totalOut} out tokens · model ${calls[0]?.model}`);
 
   console.log('\nThe Reader runs on some messages, not every one');
+  // Successful readings. A reading Google failed and the queue retried is one
+  // reading, not two — counting attempts measured Google's mood, not ours.
   const readerRuns = await sql`
-    select count(*)::int as n from ai_calls where lead_id = ${lead.id} and job = 'reader'`;
+    select count(*)::int as n from ai_calls
+    where lead_id = ${lead.id} and job = 'reader' and success = true`;
   const buyerMessages = await sql`
     select count(*)::int as n from messages where lead_id = ${lead.id} and direction = 'inbound'`;
   // The Reader runs every third message, PLUS immediately on anything carrying
@@ -213,10 +236,15 @@ async function main() {
   await fetch(`${BASE}/api/dev/break-ai`, {
     method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET! },
   });
-  await buyerSays('Hello, are you there?', 'p4.m7');
-  await fetch(`${BASE}/api/dev/break-ai?restore=1`, {
-    method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET! },
-  });
+  try {
+    await buyerSays('Hello, are you there?', 'p4.m7');
+  } finally {
+    // Always back on — even if the step above throws. Leaving it off once sent
+    // the next person to open the simulator a fallback with no explanation.
+    await fetch(`${BASE}/api/dev/break-ai?restore=1`, {
+      method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+    });
+  }
 
   const after = await sql`
     select body from messages where lead_id=${lead.id} and direction='outbound' order by sent_at`;

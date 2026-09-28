@@ -15,14 +15,25 @@ const DEFAULT_MODELS = [
 /** Google's free tier throttles hard, so a busy model falls through to the next. */
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 
-/** A single generation may not take longer than this. */
-const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * How long one request may take before we try another model.
+ *
+ * It was 30 seconds, tried on every key in turn. On a bad evening the
+ * preferred model took 21–39 seconds per answer while a lite model answered in
+ * one, so buyers waited up to a minute — and past the platform's 60-second
+ * limit the reply was lost altogether. A healthy model answers well inside
+ * this; one that does not is better abandoned than waited for.
+ */
+const PATIENCE_MS = 8_000;
+
+/** Too little time left to be worth starting another request. */
+const MIN_REQUEST_MS = 2_500;
 
 /** Quota and rate-limit errors. These mean: try another key. */
 const QUOTA_STATUS = new Set([429]);
 
-/** How long a model that says "I am overloaded" is left alone. */
-const BENCH_MS = 3 * 60_000;
+/** How long a model that is overloaded or too slow is left alone. */
+const BENCH_MS = 2 * 60_000;
 
 export class GeminiProvider implements AIProvider {
   readonly name = 'gemini';
@@ -127,16 +138,28 @@ export class GeminiProvider implements AIProvider {
 
     const keys = this.keys();
     let lastError = 'no model was tried';
+    const deadlineAt = opts.deadlineAt;
 
-    // Best model first, and for each one every key — a key that is out of
-    // allowance must not cost us the better model.
-    for (const model of this.models()) {
-      // Only rest a model when EVERY key found it unwell. One key out of
-      // allowance says nothing about the model itself.
-      let busyOnEveryKey = 0;
+    /** Time this request may use: our patience, cut short by the caller's deadline. */
+    const timeoutFor = (): number | null => {
+      if (deadlineAt === undefined) return PATIENCE_MS;
+      const left = deadlineAt - Date.now();
+      return left < MIN_REQUEST_MS ? null : Math.min(PATIENCE_MS, left);
+    };
 
+    // Best healthy model first. For each, keys are tried only while the failure
+    // is about the KEY (429, its own allowance). A 5xx or a timeout is about the
+    // MODEL — it is overloaded for everyone — so the next key would only wait
+    // for the same answer, and we move on to the next model instead.
+    models: for (const model of this.models()) {
       for (const [index, key] of keys.entries()) {
         const label = keys.length > 1 ? `${model} (key ${index + 1})` : model;
+
+        const timeoutMs = timeoutFor();
+        if (timeoutMs === null) {
+          lastError = `ran out of time (last: ${lastError})`;
+          break models;
+        }
 
         try {
           const call = (withThinking: boolean) =>
@@ -146,7 +169,7 @@ export class GeminiProvider implements AIProvider {
               body: JSON.stringify(buildBody(withThinking)),
               // Without a deadline a stalled connection holds the worker open.
               // One was seen running for six minutes, blocking every other lead.
-              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+              signal: AbortSignal.timeout(timeoutMs),
             });
 
           let res = await call(!noThinking.has(model));
@@ -162,7 +185,14 @@ export class GeminiProvider implements AIProvider {
             )
           ) {
             noThinking.add(model);
-            res = await call(false);
+            const retryMs = timeoutFor();
+            if (retryMs === null) break models;
+            res = await fetch(`${base}/models/${model}:generateContent`, {
+              method: 'POST',
+              headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
+              body: JSON.stringify(buildBody(false)),
+              signal: AbortSignal.timeout(retryMs),
+            });
             data = (await res.json().catch(() => ({}))) as Record<string, never>;
           }
 
@@ -170,16 +200,18 @@ export class GeminiProvider implements AIProvider {
             const error = (data as { error?: { message?: string; code?: number } }).error;
             lastError = `${label}: ${error?.message ?? `HTTP ${res.status}`}`;
 
-            // Out of allowance, or the model is momentarily busy: another key
-            // is a different project and may well get through, so never give up
-            // on the better model until every key has been tried.
-            if (QUOTA_STATUS.has(res.status) || RETRYABLE_STATUS.has(res.status)) {
-              // 429 is this key's allowance; 5xx is the model itself.
-              if (!QUOTA_STATUS.has(res.status)) busyOnEveryKey++;
-              console.warn(`[gemini] ${label} unavailable (${res.status}); trying the next key`);
+            if (QUOTA_STATUS.has(res.status)) {
+              // This key's allowance is spent; another key is another project.
+              console.warn(`[gemini] ${label} out of allowance (429); trying the next key`);
               continue;
             }
-            if (res.status === 404) break; // this model does not exist
+            if (RETRYABLE_STATUS.has(res.status)) {
+              // The model itself is overloaded — for every key alike.
+              console.warn(`[gemini] ${label} unavailable (${res.status}); trying the next model`);
+              GeminiProvider.bench(model);
+              continue models;
+            }
+            if (res.status === 404) continue models; // this model does not exist
             throw new Error(`Gemini: ${lastError}`);
           }
 
@@ -194,7 +226,7 @@ export class GeminiProvider implements AIProvider {
 
           if (!text) {
             lastError = `${label}: empty reply (${candidate?.finishReason ?? 'unknown'})`;
-            continue;
+            continue models;
           }
 
           // A half-written sentence must never reach a buyer. Treat it as a
@@ -202,7 +234,7 @@ export class GeminiProvider implements AIProvider {
           if (candidate?.finishReason === 'MAX_TOKENS') {
             lastError = `${label}: reply was cut off at the token limit`;
             console.warn(`[gemini] ${lastError}`);
-            continue;
+            continue models;
           }
 
           const usage = (data as {
@@ -219,16 +251,15 @@ export class GeminiProvider implements AIProvider {
             model: label,
           };
         } catch (error) {
-          lastError = `${label}: ${describeNetworkError(error)}`;
-          // A model that times out is as useless as one that says 503.
+          lastError = `${label}: ${describeNetworkError(error, timeoutMs)}`;
           if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
-            busyOnEveryKey++;
+            // Too slow is a property of the model, not the key.
+            GeminiProvider.bench(model);
+            continue models;
           }
-          // Network trouble: try the next key, then the next model.
+          // A dropped connection may be ours alone: try the next key.
         }
       }
-
-      if (busyOnEveryKey >= keys.length) GeminiProvider.bench(model);
     }
 
     throw new RetryableAIError(`every Gemini model and key failed — last error: ${lastError}`);
@@ -243,11 +274,11 @@ export class GeminiProvider implements AIProvider {
  * certificate and a timeout all read identically in the logs — which is useless
  * at 11pm when the buyer is waiting and nothing is replying.
  */
-function describeNetworkError(error: unknown): string {
+function describeNetworkError(error: unknown, timeoutMs: number): string {
   if (!(error instanceof Error)) return String(error);
 
   if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-    return `gave up waiting after ${REQUEST_TIMEOUT_MS / 1000}s`;
+    return `gave up waiting after ${(timeoutMs / 1000).toFixed(1)}s`;
   }
 
   const cause = (error as { cause?: unknown }).cause;

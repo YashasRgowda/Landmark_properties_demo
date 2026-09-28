@@ -18,6 +18,9 @@ export const dynamic = 'force-dynamic';
 // Long enough for a reply and the scoring it triggers to finish after the 200.
 export const maxDuration = 60;
 
+/** The worker's share of maxDuration, leaving room for the request itself. */
+const WORK_BUDGET_MS = 54_000;
+
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const mode = params.get('hub.mode');
@@ -79,15 +82,15 @@ export async function POST(request: Request) {
   // invocation. Without this a reply would wait for the next cron tick —
   // and on a free hosting plan cron may only run once a day.
   //
-  // Several passes, because the reply itself queues the scoring. Two workers
+  // One run against a time budget, not a fixed number of passes. The worker
+  // takes the buyer's reply first, then scoring if there is time, and never
+  // starts a task it cannot finish before this function is shut down — which
+  // is how a buyer's "hi" once went unanswered for ten minutes. Two workers
   // racing for the same task is harmless: tasks are claimed with SKIP LOCKED.
   if (queued > 0) {
     after(async () => {
       try {
-        for (let pass = 0; pass < 3; pass++) {
-          const report = await runDueTasks(20);
-          if (report.claimed === 0) break;
-        }
+        await runDueTasks(20, { budgetMs: WORK_BUDGET_MS });
       } catch (error) {
         console.error('[whatsapp webhook] follow-up processing failed', error);
       }

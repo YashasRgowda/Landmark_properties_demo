@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { parseIntake } from '@/lib/leads/schema';
+import { runDueTasks } from '@/lib/tasks/runner';
 import { intakeLead } from '@/lib/leads/intake';
 import { extractSecret, secretMatches } from '@/lib/security/secret';
 
@@ -10,9 +11,16 @@ import { extractSecret, secretMatches } from '@/lib/security/secret';
  *   Authorization: Bearer <secret>
  *   x-webhook-secret: <secret>
  *
- * Nothing slow happens here. In Phase 5 this will enqueue SEND_FIRST_MESSAGE;
- * for now it validates, dedupes and records the enquiry (golden rule 4).
+ * Nothing slow happens before the response: it validates, dedupes, records the
+ * enquiry and queues the opening WhatsApp (golden rule 4). The portal gets its
+ * answer at once, and the message is sent straight after, in the same call.
  */
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+/** The worker's share of maxDuration, leaving room for the request itself. */
+const WORK_BUDGET_MS = 54_000;
+
 export async function POST(request: Request) {
   if (!secretMatches(extractSecret(request.headers), process.env.LEAD_WEBHOOK_SECRET)) {
     return NextResponse.json({ ok: false, error: 'unauthorised' }, { status: 401 });
@@ -32,6 +40,21 @@ export async function POST(request: Request) {
 
   try {
     const result = await intakeLead(parsed.value);
+
+    // Send the opening WhatsApp now, after the portal has its response.
+    // Queuing it was not enough: nothing ran the queue, so in production a
+    // 99acres lead's first message waited for whatever happened to wake the
+    // worker next — possibly never.
+    if (result.created) {
+      after(async () => {
+        try {
+          await runDueTasks(10, { budgetMs: WORK_BUDGET_MS });
+        } catch (error) {
+          console.error('[intake] could not send the opening message', error);
+        }
+      });
+    }
+
     return NextResponse.json(
       {
         ok: true,

@@ -11,7 +11,7 @@ import { tasks, TASK_TYPES, type Task, type TaskType } from '@/lib/db/schema';
  * Nothing slow ever runs inside a webhook.
  */
 
-import { backoffMs, MAX_ATTEMPTS, STUCK_AFTER_MS } from './queue-policy';
+import { backoffMs, MAX_ATTEMPTS, queueEnv, STUCK_AFTER_MS, TASK_PRIORITY } from './queue-policy';
 
 export { backoffMs, MAX_ATTEMPTS, STUCK_AFTER_MS, BACKOFF_MS } from './queue-policy';
 
@@ -85,15 +85,32 @@ export async function enqueue(args: EnqueueArgs): Promise<EnqueueResult> {
  * `attempts` is incremented here, at claim time, rather than on failure — if the
  * process dies mid-task the attempt is still counted, so a task that crashes the
  * worker every time cannot retry forever.
+ *
+ * Two rules added after the first live demo went quiet:
+ *  - Only this environment's tasks. See queueEnv().
+ *  - Buyer-facing work first, by TASK_PRIORITY, and oldest within that.
+ *
+ * The worker asks for one task at a time. Claiming a batch marks every row
+ * RUNNING at once, and if the platform then kills the process after the first,
+ * the rest sit stranded until the stuck-task rescue — the buyer's reply among
+ * them.
  */
-export async function claimDueTasks(limit = 50): Promise<Task[]> {
+export async function claimDueTasks(limit = 1): Promise<Task[]> {
+  const env = queueEnv();
+  const priority = sql.raw(
+    `case ${tasks.type.name} ${Object.entries(TASK_PRIORITY)
+      .map(([type, rank]) => `when '${type.replace(/'/g, "''")}' then ${rank}`)
+      .join(' ')} else 9 end`,
+  );
+
   const rows = await db.execute(sql`
     with claimed as (
       select ${tasks.id} as id
       from ${tasks}
       where ${tasks.status} = 'PENDING'
         and ${tasks.dueAt} <= now()
-      order by ${tasks.dueAt} asc
+        and (${tasks.env} = ${env} or (${tasks.env} is null and ${env} = 'production'))
+      order by ${priority} asc, ${tasks.dueAt} asc
       limit ${limit}
       for update skip locked
     )
@@ -163,6 +180,7 @@ export async function reapStuckTasks(olderThanMs = STUCK_AFTER_MS): Promise<numb
      where ${tasks.status} = 'RUNNING'
        and ${tasks.startedAt} is not null
        and ${tasks.startedAt} < now() - make_interval(secs => ${seconds})
+       and (${tasks.env} = ${queueEnv()} or (${tasks.env} is null and ${queueEnv()} = 'production'))
     returning ${tasks.id}
   `);
 
@@ -195,6 +213,7 @@ function toTask(row: Record<string, unknown>): Task {
     startedAt: row.started_at == null ? null : asDate(row.started_at),
     lastError: (row.last_error ?? null) as Task['lastError'],
     idempotencyKey: (row.idempotency_key ?? null) as Task['idempotencyKey'],
+    env: (row.env ?? null) as Task['env'],
     createdAt: asDate(row.created_at),
   };
 }

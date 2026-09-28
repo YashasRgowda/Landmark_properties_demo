@@ -67,11 +67,30 @@ async function buyerReplies(phone: string, text: string) {
   await worker();
 }
 
+/**
+ * Run the worker, then wait until nothing local is running or due.
+ *
+ * Intake and the webhook now finish their own work just after responding —
+ * that is the fix that makes a 99acres lead's first WhatsApp go out without
+ * anyone running anything. So a job may be mid-run in the background when the
+ * worker call returns, and checking at that instant reads a stale state.
+ */
 async function worker() {
-  const res = await fetch(`${BASE}/api/cron/worker`, {
-    headers: { 'x-cron-secret': process.env.CRON_SECRET! },
-  });
-  return res.json();
+  const deadline = Date.now() + 20_000;
+  let report: { tasks?: { type: string }[] } = {};
+  while (Date.now() < deadline) {
+    const r = await fetch(`${BASE}/api/cron/worker`, {
+      headers: { 'x-cron-secret': process.env.CRON_SECRET! },
+    }).then((res) => res.json());
+    if ((r.tasks ?? []).length) report = r;
+    const [busy] = await sql`
+      select count(*)::int as n from tasks
+      where env = 'local'
+        and (status = 'RUNNING' or (status = 'PENDING' and due_at <= now()))`;
+    if (busy.n === 0) break;
+    await new Promise((res) => setTimeout(res, 200));
+  }
+  return report;
 }
 
 /**
@@ -235,8 +254,8 @@ async function main() {
   void agent;
   await sql`update leads set language = 'kannada', category = 'HOT', score = 11,
             summary = 'Wants a 30x40, budget 45 lakh' where id = ${replier.id}`;
-  await sql`insert into tasks (lead_id, type, due_at, status, idempotency_key)
-            values (${replier.id}, 'ESCALATE_TO_AGENT', now(), 'PENDING', ${'esc.' + Date.now()})`;
+  await sql`insert into tasks (lead_id, type, due_at, status, idempotency_key, env)
+            values (${replier.id}, 'ESCALATE_TO_AGENT', now(), 'PENDING', ${'esc.' + Date.now()}, 'local')`;
 
   // One pass is not enough when slow tasks are queued ahead of this one: the
   // worker has a per-request deadline and a failing RUN_READER can eat it.

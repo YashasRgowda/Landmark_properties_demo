@@ -6,7 +6,8 @@ import { normalisePhone } from '@/lib/phone';
 import { cancelPendingCallTasks } from '@/lib/calls/create';
 import { cancelPendingTasksForLead } from '@/lib/queue';
 import { isOptOutMessage } from './opt-out';
-import { respondToBuyer } from './respond';
+import { isAnswered, latestInboundId, respondToBuyer } from './respond';
+import { decideReply } from './reply-decision';
 import type { InboundMessageEvent, StatusEvent, WhatsAppEvent } from './parse';
 
 export { parseWebhookPayload } from './parse';
@@ -34,91 +35,116 @@ async function processInbound(event: InboundMessageEvent): Promise<ProcessResult
   const phone = normalisePhone(event.from);
   if (!phone) return { handled: false, reason: `unusable sender "${event.from}"` };
 
-  // Meta redelivers on any hiccup. The unique wa_message_id makes that harmless.
+  // Meta's redeliveries never get this far — the webhook queues one task per
+  // message id. So an already-recorded message means THIS task is being run
+  // again: the process was cut off, or the reply failed. The message is safe;
+  // what may be missing is the answer, so carry on to that instead of stopping.
   const [seen] = await db
-    .select({ id: messages.id })
+    .select({ id: messages.id, leadId: messages.leadId })
     .from(messages)
     .where(eq(messages.waMessageId, event.waMessageId))
     .limit(1);
-  if (seen) return { handled: true, reason: 'already recorded' };
 
-  const lead = await findOrCreateLead(phone);
+  let lead: Lead;
 
-  await db.insert(messages).values({
-    leadId: lead.id,
-    direction: 'inbound',
-    body: event.body,
-    waMessageId: event.waMessageId,
-    status: 'delivered',
-    sentAt: event.timestamp,
-  });
+  if (seen) {
+    const [existing] = await db.select().from(leads).where(eq(leads.id, seen.leadId)).limit(1);
+    if (!existing) return { handled: true, reason: 'lead has gone' };
+    lead = existing;
+  } else {
+    lead = await findOrCreateLead(phone);
 
-  await db.insert(touches).values({
-    leadId: lead.id,
-    channel: 'whatsapp',
-    direction: 'inbound',
-    outcome: 'replied',
-    happenedAt: event.timestamp,
-  });
+    await db.insert(messages).values({
+      leadId: lead.id,
+      direction: 'inbound',
+      body: event.body,
+      waMessageId: event.waMessageId,
+      status: 'delivered',
+      sentAt: event.timestamp,
+    });
 
-  if (isOptOutMessage(event.body)) {
+    await db.insert(touches).values({
+      leadId: lead.id,
+      channel: 'whatsapp',
+      direction: 'inbound',
+      outcome: 'replied',
+      happenedAt: event.timestamp,
+    });
+
+    if (isOptOutMessage(event.body)) {
+      await db
+        .update(leads)
+        .set({
+          optedOut: true,
+          waState: 'REPLIED',
+          status: 'LOST',
+          nextAction: null,
+          nextActionAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(leads.id, lead.id));
+
+      // Nothing queued for this lead may ever go out now — and that includes the
+      // agent's call queue, which lives in its own table. A buyer who said STOP
+      // and then gets a sales call has been failed twice.
+      const cancelled = await cancelPendingTasksForLead(lead.id);
+      const calls = await cancelPendingCallTasks(lead.id, 'he opted out');
+      return {
+        handled: true,
+        leadId: lead.id,
+        optedOut: true,
+        reason: `opted out; ${cancelled} pending task(s) and ${calls} call(s) cancelled`,
+      };
+    }
+
+    // A reply means the buyer is live. Meera takes over.
     await db
       .update(leads)
       .set({
-        optedOut: true,
         waState: 'REPLIED',
-        status: 'LOST',
-        nextAction: null,
-        nextActionAt: null,
+        status: lead.status === 'NEW' || lead.status === 'MESSAGE_SENT' ? 'CHATTING' : lead.status,
+        lastContactAt: event.timestamp,
         updatedAt: new Date(),
       })
       .where(eq(leads.id, lead.id));
-
-    // Nothing queued for this lead may ever go out now — and that includes the
-    // agent's call queue, which lives in its own table. A buyer who said STOP
-    // and then gets a sales call has been failed twice.
-    const cancelled = await cancelPendingTasksForLead(lead.id);
-    const calls = await cancelPendingCallTasks(lead.id, 'he opted out');
-    return {
-      handled: true,
-      leadId: lead.id,
-      optedOut: true,
-      reason: `opted out; ${cancelled} pending task(s) and ${calls} call(s) cancelled`,
-    };
   }
 
-  // A reply means the buyer is live. Meera takes over in Phase 4.
-  await db
-    .update(leads)
-    .set({
-      waState: 'REPLIED',
-      status: lead.status === 'NEW' || lead.status === 'MESSAGE_SENT' ? 'CHATTING' : lead.status,
-      lastContactAt: event.timestamp,
-      updatedAt: new Date(),
-    })
-    .where(eq(leads.id, lead.id));
+  if (lead.optedOut) return { handled: true, leadId: lead.id, reason: 'lead has opted out' };
 
-  // He is talking to us, so the call queued because he was NOT talking to us is
-  // moot. Cancelling here rather than at the agent's screen means nobody wastes
-  // a call on a buyer who is already mid-conversation with Meera.
-  const stale = await cancelPendingCallTasks(lead.id, 'he replied on WhatsApp');
-  if (stale > 0) console.log(`[whatsapp] cancelled ${stale} call task(s); the buyer replied`);
+  // He is talking to us, so a call queued because he was NOT talking to us is
+  // moot. Never fatal: this is housekeeping sitting in front of the reply, and
+  // an error here must not cost the buyer his answer.
+  try {
+    const stale = await cancelPendingCallTasks(lead.id, 'he replied on WhatsApp');
+    if (stale > 0) console.log(`[whatsapp] cancelled ${stale} call task(s); the buyer replied`);
+  } catch (error) {
+    console.error('[whatsapp] could not cancel the queued call; replying anyway', error);
+  }
+
+  const latest = await latestInboundId(lead.id);
+  const decision = decideReply({
+    forMessage: event.waMessageId,
+    latestInbound: latest,
+    latestAlreadyAnswered: latest ? await isAnswered(lead.id, latest) : false,
+  });
+
+  if (!decision.reply) {
+    return { handled: true, leadId: lead.id, reason: `no reply needed — ${decision.because}` };
+  }
 
   // Reply now. Scoring is queued inside respondToBuyer, never before the send.
-  try {
-    const replied = await respondToBuyer(lead.id);
-    return {
-      handled: true,
-      leadId: lead.id,
-      reason: replied.sent
-        ? `replied${replied.usedFallback ? ' (fallback)' : ''}${replied.readerQueued ? ', reader queued' : ''}`
-        : `no reply sent — ${replied.reason}`,
-    };
-  } catch (error) {
-    // The message is already saved. A failed reply must not lose it.
-    console.error('[whatsapp] could not reply', error);
-    return { handled: true, leadId: lead.id, reason: 'saved, but the reply failed' };
-  }
+  // Not caught: if the reply cannot be sent the task must fail and be retried.
+  // The message is already saved, and the retry comes back through the path
+  // above and answers it. Catching this once turned a WhatsApp hiccup into a
+  // buyer who was simply never answered.
+  const replied = await respondToBuyer(lead.id);
+  return {
+    handled: true,
+    leadId: lead.id,
+    reason: replied.sent
+      ? `replied${replied.usedFallback ? ' (fallback)' : ''}${replied.readerQueued ? ', reader queued' : ''}`
+      : `no reply sent — ${replied.reason}`,
+  };
 }
 
 async function processStatus(event: StatusEvent): Promise<ProcessResult> {
