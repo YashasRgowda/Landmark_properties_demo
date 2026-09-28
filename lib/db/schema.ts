@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { queueEnv } from '../queue-policy';
 import {
   boolean,
@@ -7,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -97,9 +99,13 @@ export type TaskType = (typeof TASK_TYPES)[number];
 export const TASK_STATUSES = ['PENDING', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+/**
+ * A reminded visit is still BOOKED — `reminded_at` records the reminder. Using
+ * a separate status for it would make every "is this visit still on?" check
+ * have to remember two values.
+ */
 export const VISIT_STATUSES = [
   'BOOKED',
-  'REMINDED',
   'ATTENDED',
   'NO_SHOW',
   'CANCELLED',
@@ -107,12 +113,13 @@ export const VISIT_STATUSES = [
 export type VisitStatus = (typeof VISIT_STATUSES)[number];
 
 export const CHASE_STATES = [
-  'NEVER_ANSWERED',
-  'WA_GHOST',
-  'CALL_GHOST',
-  'NO_SHOW',
-  'POST_VISIT_SILENT',
-  'LATE_STAGE',
+  'NEVER_ANSWERED',     // never replied to anything
+  'WA_GHOST',           // chatted, then stopped
+  'CALL_GHOST',         // answered a call once, now unreachable
+  'NO_SHOW',            // booked a visit and did not come
+  'POST_VISIT_SILENT',  // visited, then went quiet
+  'LATE_STAGE',         // was near closing, then went quiet
+  'COLD_DRIP',          // a sequence ran out with no reply: slow and gentle, never deleted
 ] as const;
 export type ChaseState = (typeof CHASE_STATES)[number];
 
@@ -286,6 +293,8 @@ export const visits = pgTable(
     label: text('label'), // the buyer's own words: "Sunday 11 AM"
     status: text('status').notNull().default('BOOKED'),
     remindedAt: timestamp('reminded_at', { withTimezone: true }),
+    /** When an agent marked him as came or didn't come. */
+    outcomeAt: timestamp('outcome_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('visits_visit_at_status_idx').on(t.visitAt, t.status)],
@@ -295,6 +304,9 @@ export const visits = pgTable(
  * Which chase sequence a silent lead is in.
  * ---------------------------------------------------------------------- */
 
+export const CHASE_STATUSES = ['ACTIVE', 'CANCELLED', 'EXHAUSTED'] as const;
+export type ChaseStatus = (typeof CHASE_STATUSES)[number];
+
 export const chaseStates = pgTable(
   'chase_states',
   {
@@ -303,14 +315,24 @@ export const chaseStates = pgTable(
       .notNull()
       .references(() => leads.id, { onDelete: 'cascade' }),
     state: text('state').notNull(),
+    /** The step that runs next (0-based). */
     step: integer('step').notNull().default(0),
     nextStepAt: timestamp('next_step_at', { withTimezone: true }),
     exhausted: boolean('exhausted').notNull().default(false),
+    /** ACTIVE, CANCELLED (he replied) or EXHAUSTED (every step ran). */
+    status: text('status').notNull().default('ACTIVE'),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    endedReason: text('ended_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('chase_states_lead_id_idx').on(t.leadId),
     index('chase_states_next_step_at_exhausted_idx').on(t.nextStepAt, t.exhausted),
+    // One live chase per lead, enforced by the database: two timer runs that
+    // overlap can never start two sequences for the same buyer.
+    uniqueIndex('chase_states_one_active_per_lead')
+      .on(t.leadId)
+      .where(sql`status = 'ACTIVE'`),
   ],
 );
 
@@ -326,8 +348,11 @@ export const CALL_REASONS = [
   'DELIVERED_UNREAD',  // message landed, not opened
   'READ_NO_REPLY',     // opened, chose not to answer
   'HOT_LEAD',          // scored HOT: a human takes over
-  'CHASE',             // a chase sequence step (Phase 6)
-  'NO_SHOW',           // booked a visit and did not come (Phase 6)
+  'CHASE',             // a follow-up sequence step
+  'NO_SHOW',           // booked a visit and did not come
+  'LATE_STAGE',        // was near closing and went quiet: the owner rings today
+  'VISIT_CHECK',       // a visit time has passed and nobody said whether he came
+  'CALLBACK',          // he picked up and asked to be rung back later
 ] as const;
 export type CallReason = (typeof CALL_REASONS)[number];
 

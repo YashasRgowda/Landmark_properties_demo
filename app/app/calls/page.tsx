@@ -19,6 +19,9 @@ const REASON_LABEL: Record<string, string> = {
   HOT_LEAD: 'HOT — call now',
   CHASE: 'Chase step',
   NO_SHOW: 'Missed the site visit',
+  LATE_STAGE: 'Was close to buying — ring today',
+  VISIT_CHECK: 'Visit time passed — did he come?',
+  CALLBACK: 'Asked to be called back',
 };
 
 export default async function CallsPage() {

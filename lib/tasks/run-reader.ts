@@ -7,6 +7,7 @@ import { getProjectData, type ProjectInfo } from '@/lib/project-data';
 import { parseBudgetToRupees, scoreLead } from '@/lib/scoring';
 import { checkVisitTime, describeVisit } from '@/lib/visit-time';
 import { enqueue } from '@/lib/queue';
+import { scheduleVisitReminder } from '@/lib/chase-engine';
 import type { TaskHandler } from './types';
 
 /**
@@ -127,10 +128,13 @@ async function bookVisit(
       return `visit already booked for ${describeVisit(visitAt)}`;
     }
 
+    // A new time needs its own reminder — even if the old time was already
+    // reminded, or that reminder would stand down as "already sent".
     await db
       .update(visits)
-      .set({ visitAt, label: label ?? existing.label })
+      .set({ visitAt, label: label ?? existing.label, ...(sameTime ? {} : { remindedAt: null }) })
       .where(eq(visits.id, existing.id));
+    if (!sameTime) await scheduleVisitReminder(existing.id, leadId, visitAt);
 
     await db
       .update(leads)
@@ -142,7 +146,11 @@ async function bookVisit(
       : `visit MOVED from ${describeVisit(existing.visitAt)} to ${describeVisit(visitAt)}${corrected}`;
   }
 
-  await db.insert(visits).values({ leadId, visitAt, label: label ?? null, status: 'BOOKED' });
+  const [created] = await db
+    .insert(visits)
+    .values({ leadId, visitAt, label: label ?? null, status: 'BOOKED' })
+    .returning({ id: visits.id });
+  await scheduleVisitReminder(created.id, leadId, visitAt);
 
   await db
     .update(leads)

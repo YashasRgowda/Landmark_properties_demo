@@ -298,7 +298,8 @@ function withDirective(history: AIMessage[], languageName: string): AIMessage[] 
 }
 
 /** Strip anything that looks like a chat transcript or markdown leaking through. */
-function tidy(text: string): string {
+/** Strip what models leak into a message: role labels, reasoning, markdown. */
+export function tidy(text: string): string {
   return text
     .replace(/^\s*(meera|assistant)\s*:\s*/i, '')
     // Reasoning that escaped into the reply: "3. Drafting the response:".

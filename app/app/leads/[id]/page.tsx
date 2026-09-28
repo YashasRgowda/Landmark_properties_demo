@@ -3,7 +3,10 @@ import { notFound } from 'next/navigation';
 import { asc, desc, eq } from 'drizzle-orm';
 import { requireUser } from '@/lib/auth/require';
 import { db } from '@/lib/db';
-import { agents, callTasks, leads, messages, touches, visits } from '@/lib/db/schema';
+import { agents, callTasks, chaseStates, CHASE_STATES, leads, messages, touches, visits, type ChaseState } from '@/lib/db/schema';
+import { CHASE_LABELS, CHASE_STEPS } from '@/lib/chase';
+import { markVisit, nextFollowUpStep, startFollowUp, stopFollowUp } from '@/lib/actions/chase';
+import { Button } from '@/components/ui/button';
 import { formatPhone } from '@/lib/phone';
 import { formatIST } from '@/lib/format';
 import { describeVisit } from '@/lib/visit-time';
@@ -12,13 +15,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
 export const dynamic = 'force-dynamic';
+/** Room for the follow-up a button here starts, which runs just after. */
+export const maxDuration = 60;
 
 const CATEGORY_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   HOT: 'default', WARM: 'secondary', COLD: 'outline', REJECT: 'destructive',
 };
 
 export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
-  await requireUser('/app/leads');
+  const session = await requireUser('/app/leads');
+  const isAdmin = session.role === 'admin';
   const { id } = await props.params;
 
   const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
@@ -54,6 +60,15 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
   ].sort((a, b) => a.at.getTime() - b.at.getTime());
 
   const pendingCall = calls.find((c) => c.status === 'PENDING');
+
+  const chases = await db
+    .select()
+    .from(chaseStates)
+    .where(eq(chaseStates.leadId, id))
+    .orderBy(desc(chaseStates.createdAt))
+    .limit(5);
+  const activeChase = chases.find((c) => c.status === 'ACTIVE');
+  const lastEnded = chases.find((c) => c.status !== 'ACTIVE');
   const nextVisit = booked.find((v) => v.status === 'BOOKED');
   const callsMade = allTouches.filter((t) => t.channel === 'call').length;
 
@@ -90,6 +105,8 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
             {' · next '}
             {pendingCall
               ? <>call {formatIST(pendingCall.dueAt)}</>
+              : activeChase?.nextStepAt
+                ? <>follow-up {formatIST(activeChase.nextStepAt)}</>
               : lead.nextActionAt
                 ? <>{lead.nextAction ?? 'action'} {formatIST(lead.nextActionAt)}</>
                 : 'nothing scheduled'}
@@ -110,10 +127,78 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
           {lead.summary && <p className="bg-muted rounded-md p-3 text-sm">{lead.summary}</p>}
 
           {nextVisit && (
-            <p className="text-sm">
-              <strong>Site visit booked:</strong> {describeVisit(nextVisit.visitAt)}
-              {nextVisit.label && <span className="text-muted-foreground"> (“{nextVisit.label}”)</span>}
+            <div className="space-y-2 text-sm">
+              <p>
+                <strong>Site visit booked:</strong> {describeVisit(nextVisit.visitAt)}
+                {nextVisit.label && <span className="text-muted-foreground"> (“{nextVisit.label}”)</span>}
+                <span className="text-muted-foreground">
+                  {' · '}{nextVisit.remindedAt ? `reminded ${formatIST(nextVisit.remindedAt)}` : 'reminder not sent yet'}
+                </span>
+              </p>
+              <form action={markVisit} className="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="visitId" value={nextVisit.id} />
+                <span className="text-muted-foreground">Did he come?</span>
+                <Button type="submit" name="outcome" value="ATTENDED" size="sm" variant="outline">Came</Button>
+                <Button type="submit" name="outcome" value="NO_SHOW" size="sm" variant="outline">Didn’t come</Button>
+              </form>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Follow-up</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {activeChase ? (
+            <>
+              <p>
+                <Badge>{CHASE_LABELS[activeChase.state as ChaseState] ?? activeChase.state}</Badge>{' '}
+                {activeChase.step < CHASE_STEPS[activeChase.state as ChaseState].length
+                  ? <>step {activeChase.step + 1} of {CHASE_STEPS[activeChase.state as ChaseState].length}</>
+                  : <>every step done — waiting for a reply</>}
+                {activeChase.nextStepAt && <> · next {formatIST(activeChase.nextStepAt)}</>}
+              </p>
+              <p className="text-muted-foreground">Stops by itself the moment he replies or picks up.</p>
+              {isAdmin && (
+                <div className="flex flex-wrap gap-2">
+                  <form action={nextFollowUpStep}>
+                    <input type="hidden" name="leadId" value={lead.id} />
+                    <Button type="submit" size="sm">Send next step now</Button>
+                  </form>
+                  <form action={stopFollowUp}>
+                    <input type="hidden" name="leadId" value={lead.id} />
+                    <Button type="submit" size="sm" variant="outline">Stop</Button>
+                  </form>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-muted-foreground">
+              No follow-up running. One starts by itself if he goes quiet.
             </p>
+          )}
+
+          {lastEnded && (
+            <p className="text-muted-foreground">
+              Last: {CHASE_LABELS[lastEnded.state as ChaseState] ?? lastEnded.state} —{' '}
+              {lastEnded.status === 'CANCELLED' ? 'stopped' : 'finished'}
+              {lastEnded.endedReason && <> ({lastEnded.endedReason})</>}
+              {lastEnded.endedAt && <>, {formatIST(lastEnded.endedAt)}</>}
+            </p>
+          )}
+
+          {isAdmin && (
+            <form action={startFollowUp} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <select name="state" className="border-input h-8 rounded-md border bg-transparent px-2 text-sm">
+                {CHASE_STATES.map((s) => (
+                  <option key={s} value={s}>{CHASE_LABELS[s]}</option>
+                ))}
+              </select>
+              <Button type="submit" size="sm" variant="outline">
+                {activeChase ? 'Switch to this follow-up' : 'Start this follow-up'}
+              </Button>
+            </form>
           )}
         </CardContent>
       </Card>

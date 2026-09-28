@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { leads, messages, touches, type Lead } from '@/lib/db/schema';
 import { normalisePhone } from '@/lib/phone';
 import { cancelPendingCallTasks } from '@/lib/calls/create';
+import { cancelActiveChase } from '@/lib/chase-engine';
 import { cancelPendingTasksForLead } from '@/lib/queue';
 import { isOptOutMessage } from './opt-out';
 import { isAnswered, latestInboundId, respondToBuyer } from './respond';
@@ -19,6 +20,9 @@ export type { InboundMessageEvent, StatusEvent, WhatsAppEvent } from './parse';
  * The webhook itself does none of this — it verifies the signature, queues the
  * event and returns 200 (golden rule 4). This runs later, in the worker.
  */
+
+/** Statuses that only describe our attempts to reach him. A reply ends them. */
+const QUIET_STATUSES = new Set(['NEW', 'MESSAGE_SENT', 'DELIVERED_UNREAD', 'READ_NO_REPLY', 'NOT_ON_WHATSAPP']);
 
 export type ProcessResult = {
   handled: boolean;
@@ -87,6 +91,7 @@ async function processInbound(event: InboundMessageEvent): Promise<ProcessResult
       // Nothing queued for this lead may ever go out now — and that includes the
       // agent's call queue, which lives in its own table. A buyer who said STOP
       // and then gets a sales call has been failed twice.
+      await cancelActiveChase(lead.id, 'he opted out');
       const cancelled = await cancelPendingTasksForLead(lead.id);
       const calls = await cancelPendingCallTasks(lead.id, 'he opted out');
       return {
@@ -97,12 +102,24 @@ async function processInbound(event: InboundMessageEvent): Promise<ProcessResult
       };
     }
 
-    // A reply means the buyer is live. Meera takes over.
+    // Any reply stops any follow-up sequence, at once — the spec's rule. Never
+    // fatal: a hiccup here must not cost him his answer.
+    let wasChased = false;
+    try {
+      wasChased = await cancelActiveChase(lead.id, 'he replied');
+    } catch (error) {
+      console.error('[whatsapp] could not stop the follow-up sequence; replying anyway', error);
+    }
+
+    // A reply means the buyer is live and Meera takes over. Statuses that only
+    // described our attempts to reach him become CHATTING; ones that record
+    // real progress — with an agent, visit booked, visited — are kept.
+    const reawakened = QUIET_STATUSES.has(lead.status) || (wasChased && lead.status === 'QUALIFIED');
     await db
       .update(leads)
       .set({
         waState: 'REPLIED',
-        status: lead.status === 'NEW' || lead.status === 'MESSAGE_SENT' ? 'CHATTING' : lead.status,
+        status: reawakened ? 'CHATTING' : lead.status,
         lastContactAt: event.timestamp,
         updatedAt: new Date(),
       })

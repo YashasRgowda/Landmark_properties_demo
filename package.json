@@ -26,7 +26,8 @@
     "agent:create": "tsx --env-file=.env.local scripts/create-agent.ts",
     "lead:reset": "tsx --env-file=.env.local scripts/reset-lead.ts",
     "verify:reliability": "tsx --env-file=.env.local scripts/verify-reliability.mts",
-    "scheduler:setup": "tsx --env-file=.env.local scripts/setup-scheduler.ts"
+    "scheduler:setup": "tsx --env-file=.env.local scripts/setup-scheduler.ts",
+    "verify:phase6": "tsx --env-file=.env.local scripts/verify-phase6.mts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

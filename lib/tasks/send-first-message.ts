@@ -5,6 +5,7 @@ import { leads } from '@/lib/db/schema';
 import { sendTemplate } from '@/lib/whatsapp/client';
 import { enqueue } from '@/lib/queue';
 import { DELIVERY_CHECK_DELAY_MS } from '@/lib/first-hour';
+import { templateFor } from '@/lib/whatsapp/templates';
 import type { TaskHandler } from './types';
 
 /**
@@ -41,10 +42,7 @@ export const sendFirstMessage: TaskHandler = async ({ task, log }) => {
     return;
   }
 
-  const template = process.env.WHATSAPP_FIRST_TEMPLATE?.trim() || 'hello_world';
-  const language = process.env.WHATSAPP_FIRST_TEMPLATE_LANG?.trim() || 'en_US';
-  // hello_world takes no placeholders; a real template greets him by name.
-  const variables = template === 'hello_world' ? [] : [firstName(lead.name) || 'there'];
+  const { template, language, variables } = templateFor('first', lead.name);
 
   const result = await sendTemplate({
     lead,
@@ -86,6 +84,3 @@ export const sendFirstMessage: TaskHandler = async ({ task, log }) => {
   log('delivery check queued for two minutes from now');
 };
 
-function firstName(name: string | null): string {
-  return (name ?? '').trim().split(/\s+/)[0] ?? '';
-}

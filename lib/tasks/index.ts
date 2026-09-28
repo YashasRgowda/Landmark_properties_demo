@@ -8,6 +8,9 @@ import { sendFirstMessage } from './send-first-message';
 import { checkDelivery } from './check-delivery';
 import { createCallTaskHandler } from './create-call-task';
 import { escalateToAgent } from './escalate-to-agent';
+import { advanceChase } from './advance-chase';
+import { sendChaseMessage } from './send-chase-message';
+import { sendVisitReminder } from './send-visit-reminder';
 
 /**
  * Every task type maps to exactly one handler.
@@ -24,10 +27,10 @@ const HANDLERS: Record<TaskType, TaskHandler | null> = {
   CHECK_DELIVERY: checkDelivery,
   CREATE_CALL_TASK: createCallTaskHandler,
   RUN_READER: runReader,
-  SEND_CHASE_MESSAGE: null, // Phase 6
-  SEND_VISIT_REMINDER: null, // Phase 6
+  SEND_CHASE_MESSAGE: sendChaseMessage,
+  SEND_VISIT_REMINDER: sendVisitReminder,
   ESCALATE_TO_AGENT: escalateToAgent,
-  ADVANCE_CHASE: null, // Phase 6
+  ADVANCE_CHASE: advanceChase,
 };
 
 export function handlerFor(type: string): TaskHandler {

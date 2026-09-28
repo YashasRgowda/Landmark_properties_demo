@@ -132,16 +132,17 @@ async function main() {
   const [rescued] = await sql`select status from tasks where id = ${stuck.id}`;
   check('it finishes', rescued.status, 'DONE');
 
-  // ADVANCE_CHASE is built in Phase 6. (This used SEND_FIRST_MESSAGE until
-  // Phase 5 built that, which quietly turned this check into a false failure.)
-  console.log('\nUnbuilt task types fail loudly');
+  // Every task type is built as of Phase 6, so the check is now the one that
+  // lasts: a type nothing knows how to run must fail loudly and retry, never
+  // be marked done.
+  console.log('\nUnknown task types fail loudly');
   const [future] = await sql`
-    insert into tasks (type, due_at, env) values ('ADVANCE_CHASE', now() - interval '1 second', 'local')
+    insert into tasks (type, due_at, env) values ('NOT_A_REAL_TASK', now() - interval '1 second', 'local')
     returning id`;
   await worker();
   const [notImpl] = await sql`select status, last_error from tasks where id = ${future.id}`;
   check('marked for retry, not silently done', notImpl.status, 'PENDING');
-  check('error says it is a later phase', String(notImpl.last_error).includes('later phase'), true);
+  check('error names the unknown type', String(notImpl.last_error).includes('unknown task type'), true);
   await sql`delete from tasks where id = ${future.id}`;
 
   await clean();

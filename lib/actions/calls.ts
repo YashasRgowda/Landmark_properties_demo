@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireUser } from '@/lib/auth/require';
 import { completeCallTask } from '@/lib/calls/create';
+import { afterCallOutcome } from '@/lib/chase-engine';
 import { CALL_OUTCOMES, type CallOutcome } from '@/lib/db/schema';
 
 export type MarkCallState = { error?: string; done?: boolean };
@@ -33,6 +34,8 @@ export async function markCallOutcome(
   });
 
   if (!result.ok) return { error: 'That call has already been closed by someone else.' };
+
+  if (result.leadId) await afterCallOutcome(result.leadId, outcome as CallOutcome);
 
   revalidatePath('/app/calls');
   revalidatePath('/app');

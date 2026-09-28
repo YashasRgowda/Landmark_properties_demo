@@ -1,6 +1,6 @@
 'use server';
 
-import { and, asc, desc, eq, inArray, sql as raw } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth/require';
 import { db } from '@/lib/db';
 import { agents, callTasks, leads, messages, tasks, type WaState } from '@/lib/db/schema';
@@ -201,5 +201,3 @@ export async function resetLadder(): Promise<LadderRow[]> {
   return getLadderState();
 }
 
-void asc;
-void raw;
