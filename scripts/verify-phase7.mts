@@ -160,13 +160,13 @@ async function main() {
 
   console.log('\nEvery screen loads for an admin');
   const screens: [string, string, RegExp][] = [
-    ['/app', 'Today', /Calls due now.*Hot leads.*Visits today/],
+    ['/app', 'Today', /Calls to make.*Hot buyers.*Visits today/],
     ['/app/leads', 'Leads', /Priya Hot/],
-    [`/app/leads/${hot.id}`, 'the buyer’s page', /The track box.*Follow-up/],
+    [`/app/leads/${hot.id}`, 'the buyer’s page', /What happens next.*Automatic follow-up/],
     ['/app/calls', 'Calls', /Priya Hot/],
-    ['/app/visits', 'Visits', /Did he come\?.*Arun Warm/],
-    ['/admin/project', 'Project data', /Plots.*Prices and offers.*Save/],
-    ['/admin/agents', 'Agents', /active agent.*Add an agent/],
+    ['/app/visits', 'Visits', /Did they come\?.*Arun Warm/],
+    ['/admin/project', 'Project details', /Plots.*Prices and offers.*Save/],
+    ['/admin/agents', 'Sales team', /active agent.*Add someone to the team/],
   ];
   for (const [path, name, expect] of screens) {
     const r = await page(path, admin);
@@ -178,8 +178,8 @@ async function main() {
   console.log('\nThe Today screen');
   {
     const t = text((await page('/app', admin)).html);
-    check('raises the "close to buying" alert for the owner', /close to buying and went quiet/.test(t));
-    check('flags the past visit nobody marked', /past visit.*need.*marking/.test(t));
+    check('raises the "about to buy" alert for the owner', /about to buy and went quiet/.test(t));
+    check('flags the past visit nobody marked', /site visits? ha(s|ve) passed.*who came/.test(t));
   }
 
   console.log('\nLeads: filters and search');

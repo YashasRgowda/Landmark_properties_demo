@@ -122,8 +122,8 @@ async function main() {
     check('...with the reason recorded', Boolean(reader?.last_error), String(reader?.last_error));
 
     const retrying = await page('/app/debug/failed', admin);
-    check('the failure appears in /app/debug/failed', retrying.status === 200 && /Failing, will retry \([1-9]/.test(retrying.text)
-      && /Score a lead/.test(retrying.text), retrying.status !== 200 ? `HTTP ${retrying.status}` : 'not listed');
+    check('the failure appears in /app/debug/failed', retrying.status === 200 && /retrying on its own · [1-9]/.test(retrying.text)
+      && /Read a chat and judge interest/.test(retrying.text), retrying.status !== 200 ? `HTTP ${retrying.status}` : 'not listed');
 
     // Let it run out of retries, as it would over the next hour.
     await sql`update tasks set attempts = 4, due_at = now() - interval '1 second'
@@ -132,9 +132,9 @@ async function main() {
     const [gaveUp] = await sql`select status from tasks where lead_id = ${lead.id} and type = 'RUN_READER'`;
     check('after its last retry it is marked FAILED', gaveUp.status === 'FAILED', gaveUp.status);
     const listed = await page('/app/debug/failed', admin);
-    check('...and listed under "Gave up"', /Gave up \([1-9]/.test(listed.text));
+    check('...and listed under "Stopped after retrying"', /Stopped after retrying · [1-9]/.test(listed.text));
     const today = await page('/app', admin);
-    check('the Today screen tells the admin', /failed for good/.test(today.text));
+    check('the Today screen tells the admin', /could not finish, even after retrying/.test(today.text));
 
     await setAi(false);
     await sql`update tasks set status = 'CANCELLED' where lead_id = ${lead.id} and type = 'RUN_READER'`;
@@ -174,7 +174,7 @@ async function main() {
     check('covering every lead status', statuses.size === 13, `${statuses.size}: ${[...statuses].join(', ')}`);
 
     const today = await page('/app', admin);
-    check('the Today screen fills up', /Priya Sharma|Pooja Hegde/.test(today.text) && /close to buying/.test(today.text));
+    check('the Today screen fills up', /Priya Sharma|Pooja Hegde/.test(today.text) && /about to buy/.test(today.text));
     const visits = await page('/app/visits', admin);
     check('visits show: today, coming up, and the ones that happened', /Vikram Singh/.test(visits.text) && /Divya Menon/.test(visits.text)
       && /Sneha Patil/.test(visits.text));

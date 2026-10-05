@@ -7,24 +7,27 @@ import { queueEnv, MAX_ATTEMPTS } from '@/lib/queue-policy';
 import { dismissTask, retryTask } from '@/lib/actions/failed';
 import { formatPhone } from '@/lib/phone';
 import { formatIST } from '@/lib/format';
-import { Badge } from '@/components/ui/badge';
+import { relativeTime } from '@/lib/labels';
+import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/app/page-header';
+import { Panel } from '@/components/app/panel';
+import { Pill } from '@/components/app/pill';
 
-export const metadata = { title: 'Failed jobs · Landmark System 1' };
+export const metadata = { title: 'System health · Landmark Lead Desk' };
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /** What each job does, for a person rather than a programmer. */
 const JOB: Record<string, string> = {
   PROCESS_WA_EVENT: 'Handle a WhatsApp message',
-  SEND_FIRST_MESSAGE: 'Send a new lead his first WhatsApp',
+  SEND_FIRST_MESSAGE: 'Send a new buyer their first WhatsApp',
   CHECK_DELIVERY: 'Check whether the first WhatsApp landed',
-  CREATE_CALL_TASK: 'Put a call on the queue',
-  RUN_READER: 'Score a lead',
+  CREATE_CALL_TASK: 'Add a call to the list',
+  RUN_READER: 'Read a chat and judge interest',
   SEND_CHASE_MESSAGE: 'Send a follow-up',
   SEND_VISIT_REMINDER: 'Send a visit reminder',
-  ESCALATE_TO_AGENT: 'Hand a hot lead to an agent',
+  ESCALATE_TO_AGENT: 'Hand a ready buyer to an agent',
   ADVANCE_CHASE: 'Move a follow-up to its next step',
 };
 
@@ -54,19 +57,36 @@ export default async function FailedJobsPage() {
       .orderBy(desc(tasks.createdAt)).limit(100),
   ]);
 
-  return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Failed jobs</h1>
-        <p className="text-muted-foreground text-sm">
-          Every job is retried {MAX_ATTEMPTS} times, waiting longer each time, before it is given up
-          on. Nothing here is lost — retry it or dismiss it.
-        </p>
-      </div>
+  const healthy = gaveUp.length === 0 && retrying.length === 0;
 
-      <JobList title={`Gave up (${gaveUp.length})`} rows={gaveUp} empty="Nothing has failed for good." />
-      <JobList title={`Failing, will retry (${retrying.length})`} rows={retrying}
-        empty="Nothing is failing right now." retrying />
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Settings"
+        title="System health"
+        description={`Behind the scenes, small jobs run every minute — answering WhatsApps, sending follow-ups, adding calls. If one fails, it is tried again up to ${MAX_ATTEMPTS} times on its own.`}
+      />
+
+      {healthy ? (
+        <div className="flex items-center gap-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6">
+          <span className="inline-flex size-11 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <CheckCircle2 className="size-6" />
+          </span>
+          <div>
+            <p className="font-semibold text-emerald-900">Everything is running smoothly</p>
+            <p className="text-sm text-emerald-800/80">No job has failed. Nothing needs your attention.</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <JobList icon={AlertTriangle} title={`Stopped after retrying · ${gaveUp.length}`}
+            description="These were tried several times and then stopped. Press “Try again” once the cause is fixed — nothing is lost."
+            rows={gaveUp} empty="Nothing has stopped." />
+          <JobList icon={RefreshCw} title={`Having trouble — retrying on its own · ${retrying.length}`}
+            description="Usually a short hiccup (WhatsApp or the AI was slow). No action needed unless it ends up above."
+            rows={retrying} empty="Nothing is retrying right now." retrying />
+        </>
+      )}
     </div>
   );
 }
@@ -76,28 +96,29 @@ type Row = {
   dueAt: Date; createdAt: Date; leadId: string | null; name: string | null; phone: string | null;
 };
 
-function JobList({ title, rows, empty, retrying }: { title: string; rows: Row[]; empty: string; retrying?: boolean }) {
+function JobList({ title, description, icon, rows, empty, retrying }: {
+  title: string; description: string; icon: typeof AlertTriangle; rows: Row[]; empty: string; retrying?: boolean;
+}) {
   return (
-    <Card>
-      <CardHeader className="pb-2"><CardTitle className="text-base">{title}</CardTitle></CardHeader>
-      <CardContent className="space-y-3">
-        {rows.length === 0 && <p className="text-muted-foreground text-sm">{empty}</p>}
+    <Panel icon={icon} title={title} description={description} tone={!retrying && rows.length ? 'urgent' : undefined}>
+      {rows.length === 0 && <p className="text-muted-foreground py-4 text-sm">{empty}</p>}
+      <ul className="divide-y">
         {rows.map((r) => (
-          <div key={r.id} className="space-y-1 border-b pb-3 text-sm last:border-0">
+          <li key={r.id} className="space-y-2 py-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-medium">
-                {JOB[r.type] ?? r.type}{' '}
-                <Badge variant="outline">{r.attempts} attempt{r.attempts === 1 ? '' : 's'}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{JOB[r.type] ?? r.type}</span>
                 {r.leadId && (
-                  <> · <Link href={`/app/leads/${r.leadId}`} className="font-normal hover:underline">
-                    {r.name?.trim() || (r.phone ? formatPhone(r.phone) : 'lead')}
-                  </Link></>
+                  <Link href={`/app/leads/${r.leadId}`} className="text-primary hover:underline">
+                    for {r.name?.trim() || (r.phone ? formatPhone(r.phone) : 'a buyer')}
+                  </Link>
                 )}
-              </p>
+                <Pill tone={retrying ? 'warm' : 'bad'}>tried {r.attempts} time{r.attempts === 1 ? '' : 's'}</Pill>
+              </div>
               <div className="flex gap-2">
                 <form action={retryTask}>
                   <input type="hidden" name="taskId" value={r.id} />
-                  <Button type="submit" size="sm" variant="outline">{retrying ? 'Retry now' : 'Retry'}</Button>
+                  <Button type="submit" size="sm" variant="outline">{retrying ? 'Try now' : 'Try again'}</Button>
                 </form>
                 <form action={dismissTask}>
                   <input type="hidden" name="taskId" value={r.id} />
@@ -105,13 +126,16 @@ function JobList({ title, rows, empty, retrying }: { title: string; rows: Row[];
                 </form>
               </div>
             </div>
-            <p className="bg-muted rounded p-2 font-mono text-xs break-words">{r.lastError ?? 'no error recorded'}</p>
-            <p className="text-muted-foreground text-xs">
-              Queued {formatIST(r.createdAt)}{retrying && <> · next try {formatIST(r.dueAt)}</>}
-            </p>
-          </div>
+            <details className="text-xs">
+              <summary className="text-muted-foreground cursor-pointer">
+                Started {relativeTime(r.createdAt)}{retrying && <> · next try {relativeTime(r.dueAt)}</>} · technical details
+              </summary>
+              <p className="bg-muted mt-2 rounded p-2 font-mono break-words">{r.lastError ?? 'no error recorded'}</p>
+              <p className="text-muted-foreground mt-1">Queued {formatIST(r.createdAt)}</p>
+            </details>
+          </li>
         ))}
-      </CardContent>
-    </Card>
+      </ul>
+    </Panel>
   );
 }

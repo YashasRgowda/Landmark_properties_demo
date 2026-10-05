@@ -4,13 +4,17 @@ import { db } from '@/lib/db';
 import { agents, callTasks, leads } from '@/lib/db/schema';
 import { setAgentActive } from '@/lib/actions/agents';
 import { formatPhone } from '@/lib/phone';
-import { Badge } from '@/components/ui/badge';
+import { LANGUAGE } from '@/lib/labels';
+import { cn } from '@/lib/utils';
+import { Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageHeader } from '@/components/app/page-header';
+import { Empty, Panel } from '@/components/app/panel';
+import { Pill } from '@/components/app/pill';
+import { Avatar } from '@/components/app/lead-identity';
 import { AddAgentForm } from './add-agent-form';
 
-export const metadata = { title: 'Agents · Admin' };
+export const metadata = { title: 'Sales team · Landmark Lead Desk' };
 export const dynamic = 'force-dynamic';
 
 export default async function AdminAgentsPage() {
@@ -35,72 +39,53 @@ export default async function AdminAgentsPage() {
   const activeCount = rows.filter((a) => a.active).length;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">Agents</h1>
-        <p className="text-muted-foreground text-sm">
-          The people hot leads are handed to. A buyer goes to someone who speaks his language, then
-          to whoever has the fewest leads.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Settings"
+        title="Sales team"
+        description="When a buyer is ready, Meera hands them to someone here — first to an agent who speaks the buyer's language, then to whoever has the fewest buyers."
+      />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">{activeCount} active agent{activeCount === 1 ? '' : 's'}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {rows.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No agents yet. Until you add one, hot leads have nobody to go to.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Languages</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead className="text-right">Open leads</TableHead>
-                    <TableHead className="text-right">Calls waiting</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((a) => (
-                    <TableRow key={a.id} className={a.active ? undefined : 'opacity-60'}>
-                      <TableCell className="font-medium">
-                        {a.name}{' '}
-                        {!a.active && <Badge variant="outline">Inactive</Badge>}
-                      </TableCell>
-                      <TableCell className="capitalize">{a.languages.join(', ')}</TableCell>
-                      <TableCell className="font-mono text-xs">{a.phone ? formatPhone(a.phone) : '—'}</TableCell>
-                      <TableCell className="text-right tabular-nums">{a.openLeads}</TableCell>
-                      <TableCell className="text-right tabular-nums">{a.callsWaiting}</TableCell>
-                      <TableCell className="text-right">
-                        {a.active && activeCount === 1 ? (
-                          <span className="text-muted-foreground text-xs">The last active agent</span>
-                        ) : (
-                          <form action={setAgentActive}>
-                            <input type="hidden" name="agentId" value={a.id} />
-                            <input type="hidden" name="active" value={a.active ? 'false' : 'true'} />
-                            <Button type="submit" size="sm" variant="outline">
-                              {a.active ? 'Deactivate' : 'Bring back'}
-                            </Button>
-                          </form>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          <p className="text-muted-foreground mt-3 text-xs">
-            Deactivating someone hands their open leads and waiting calls back to the team.
-          </p>
-        </CardContent>
-      </Card>
+      <Panel icon={Users} title={`${activeCount} active agent${activeCount === 1 ? '' : 's'}`}
+        description="Taking someone off the team hands their buyers and calls back to everyone else.">
+        {rows.length === 0 ? (
+          <Empty icon={Users} title="No one on the team yet" hint="Until you add someone, ready buyers have nobody to go to." />
+        ) : (
+          <ul className="divide-y">
+            {rows.map((a) => (
+              <li key={a.id} className={cn('flex flex-wrap items-center gap-4 py-3', !a.active && 'opacity-60')}>
+                <Avatar name={a.name} seed={a.id} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">
+                    {a.name} {!a.active && <Pill tone="neutral">Off the team</Pill>}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {a.phone ? formatPhone(a.phone) : 'No phone added'} · Speaks{' '}
+                    {a.languages.map((l) => LANGUAGE[l] ?? l).join(', ')}
+                  </p>
+                </div>
+                <div className="flex gap-6 text-center">
+                  <div><p className="text-lg font-semibold tabular-nums">{a.openLeads}</p><p className="text-muted-foreground text-xs">buyers</p></div>
+                  <div><p className="text-lg font-semibold tabular-nums">{a.callsWaiting}</p><p className="text-muted-foreground text-xs">calls to make</p></div>
+                </div>
+                <div className="w-36 text-right">
+                  {a.active && activeCount === 1 ? (
+                    <span className="text-muted-foreground text-xs">The last active agent</span>
+                  ) : (
+                    <form action={setAgentActive}>
+                      <input type="hidden" name="agentId" value={a.id} />
+                      <input type="hidden" name="active" value={a.active ? 'false' : 'true'} />
+                      <Button type="submit" size="sm" variant="outline">
+                        {a.active ? 'Take off team' : 'Bring back'}
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
 
       <AddAgentForm />
     </div>

@@ -1,158 +1,114 @@
-import Link from 'next/link';
-import { and, asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { Clock, Phone, PhoneCall, Sparkles } from 'lucide-react';
 import { requireUser } from '@/lib/auth/require';
 import { db } from '@/lib/db';
 import { agents, callTasks, leads, PRIORITY_TOP } from '@/lib/db/schema';
 import { formatPhone } from '@/lib/phone';
 import { formatIST } from '@/lib/format';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { callReason, category, relativeTime } from '@/lib/labels';
+import { PageHeader } from '@/components/app/page-header';
+import { LeadIdentity } from '@/components/app/lead-identity';
+import { Pill } from '@/components/app/pill';
+import { Empty } from '@/components/app/panel';
+import { Button } from '@/components/ui/button';
 import { MarkCallForm } from './mark-call-form';
 
-export const metadata = { title: 'Calls · Landmark System 1' };
+export const metadata = { title: 'Calls to make · Landmark Lead Desk' };
 export const dynamic = 'force-dynamic';
-
-const REASON_LABEL: Record<string, string> = {
-  PHONE_ONLY: 'Not on WhatsApp',
-  DELIVERED_UNREAD: 'Has not opened the message',
-  READ_NO_REPLY: 'Read it, did not reply',
-  HOT_LEAD: 'HOT — call now',
-  CHASE: 'Chase step',
-  NO_SHOW: 'Missed the site visit',
-  LATE_STAGE: 'Was close to buying — ring today',
-  VISIT_CHECK: 'Visit time passed — did he come?',
-  CALLBACK: 'Asked to be called back',
-};
 
 export default async function CallsPage() {
   await requireUser('/app/calls');
 
-  // The queue order the spec asks for: priority first, then oldest due.
   const rows = await db
     .select({
-      id: callTasks.id,
-      reason: callTasks.reason,
-      priority: callTasks.priority,
-      dueAt: callTasks.dueAt,
-      notes: callTasks.notes,
-      leadId: leads.id,
-      name: leads.name,
-      phone: leads.phone,
-      language: leads.language,
-      category: leads.category,
-      summary: leads.summary,
-      agentName: agents.name,
+      id: callTasks.id, reason: callTasks.reason, priority: callTasks.priority, dueAt: callTasks.dueAt,
+      notes: callTasks.notes, leadId: leads.id, name: leads.name, phone: leads.phone,
+      category: leads.category, summary: leads.summary, agentName: agents.name,
     })
     .from(callTasks)
     .innerJoin(leads, eq(leads.id, callTasks.leadId))
     .leftJoin(agents, eq(agents.id, callTasks.agentId))
-    .where(eq(callTasks.status, 'PENDING'))
-    .orderBy(asc(callTasks.priority), asc(callTasks.dueAt));
+    .where(eq(callTasks.status, 'PENDING'));
 
-  // Priority is stored low-to-high for sorting convenience elsewhere, but the
-  // agent wants the urgent ones first.
-  const queue = [...rows].sort(
-    (a, b) => b.priority - a.priority || a.dueAt.getTime() - b.dueAt.getTime(),
-  );
-
-  const now = Date.now();
-  const due = queue.filter((r) => r.dueAt.getTime() <= now);
-  const later = queue.filter((r) => r.dueAt.getTime() > now);
+  // Most urgent first, then whoever has waited longest.
+  const queue = rows.sort((a, b) => b.priority - a.priority || a.dueAt.getTime() - b.dueAt.getTime());
+  const now = new Date();
+  const due = queue.filter((r) => r.dueAt.getTime() <= now.getTime());
+  const later = queue.filter((r) => r.dueAt.getTime() > now.getTime());
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Calls</h1>
-        <p className="text-muted-foreground text-sm">
-          {due.length} to ring now
-          {later.length > 0 && `, ${later.length} scheduled for later`}.
-        </p>
-      </div>
+    <div className="space-y-8">
+      <PageHeader
+        title="Calls to make"
+        description="Ring these people, most urgent first. After each call, tap what happened — the system takes care of the rest."
+      />
 
       {queue.length === 0 && (
-        <Card>
-          <CardContent className="text-muted-foreground py-10 text-center text-sm">
-            Nothing to call. Every lead is either talking to Meera or already handled.
-          </CardContent>
-        </Card>
+        <div className="bg-card rounded-2xl border">
+          <Empty icon={Sparkles} title="No calls to make" hint="Everyone is either chatting with Meera or already handled." />
+        </div>
       )}
 
-      {due.length > 0 && <CallList title="Ring now" rows={due} />}
-      {later.length > 0 && <CallList title="Later today" rows={later} muted />}
+      {due.length > 0 && <CallList title={`Ring now · ${due.length}`} rows={due} now={now} />}
+      {later.length > 0 && <CallList title={`Coming up · ${later.length}`} rows={later} now={now} later />}
     </div>
   );
 }
 
+/** Reasons whose note adds something beyond the reason itself. */
+const INFORMATIVE_NOTES = new Set(['VISIT_CHECK', 'CALLBACK', 'CHASE', 'LATE_STAGE', 'NO_SHOW']);
+
 type Row = {
-  id: string;
-  reason: string;
-  priority: number;
-  dueAt: Date;
-  notes: string | null;
-  leadId: string;
-  name: string | null;
-  phone: string;
-  language: string | null;
-  category: string | null;
-  summary: string | null;
-  agentName: string | null;
+  id: string; reason: string; priority: number; dueAt: Date; notes: string | null; leadId: string;
+  name: string | null; phone: string; category: string | null; summary: string | null; agentName: string | null;
 };
 
-function CallList({ title, rows, muted }: { title: string; rows: Row[]; muted?: boolean }) {
+function CallList({ title, rows, now, later }: { title: string; rows: Row[]; now: Date; later?: boolean }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-medium tracking-wide uppercase">{title}</h2>
-      {rows.map((row) => (
-        <Card key={row.id} className={muted ? 'opacity-70' : undefined}>
-          <CardHeader className="pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle className="text-base">
-                <Link href={`/app/leads/${row.leadId}`} className="hover:underline">
-                  {row.name?.trim() || formatPhone(row.phone)}
-                </Link>
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                {row.priority >= PRIORITY_TOP && <Badge>Top priority</Badge>}
-                {row.category === 'HOT' && <Badge>HOT</Badge>}
-                <Badge variant="outline">{REASON_LABEL[row.reason] ?? row.reason}</Badge>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-3">
-            <dl className="text-muted-foreground grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="inline font-medium">Phone: </dt>
-                <dd className="inline">
-                  <a href={`tel:+${row.phone}`} className="hover:underline">{formatPhone(row.phone)}</a>
-                </dd>
-              </div>
-              <div>
-                <dt className="inline font-medium">Due: </dt>
-                <dd className="inline">{formatIST(row.dueAt)}</dd>
-              </div>
-              {row.language && (
-                <div>
-                  <dt className="inline font-medium">Speaks: </dt>
-                  <dd className="inline capitalize">{row.language}</dd>
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        {later ? <Clock className="text-muted-foreground size-4" /> : <PhoneCall className="size-4 text-amber-700" />}
+        {title}
+      </h2>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {rows.map((r) => {
+          const why = callReason(r.reason);
+          const cat = category(r.category);
+          const urgent = r.priority >= PRIORITY_TOP;
+          return (
+            <article key={r.id} className={`bg-card space-y-4 rounded-2xl border p-5 ${urgent && !later ? 'border-rose-200 shadow-[0_0_0_3px_rgba(244,63,94,0.06)]' : ''}`}>
+              <div className="flex items-start justify-between gap-3">
+                <LeadIdentity id={r.leadId} name={r.name} phone={r.phone} />
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {urgent && <Pill tone="hot">Urgent</Pill>}
+                  <Pill tone={cat.tone} dot title={cat.hint}>{cat.label}</Pill>
                 </div>
-              )}
-              {row.agentName && (
-                <div>
-                  <dt className="inline font-medium">Owner: </dt>
-                  <dd className="inline">{row.agentName}</dd>
-                </div>
-              )}
-            </dl>
+              </div>
 
-            {(row.summary || row.notes) && (
-              <p className="bg-muted rounded-md p-3 text-sm">{row.summary || row.notes}</p>
-            )}
+              <div className="space-y-1">
+                <p className="text-sm font-medium">{why.label}</p>
+                <p className="text-muted-foreground text-xs">
+                  {later ? `Due ${relativeTime(r.dueAt, now)} · ${formatIST(r.dueAt)}` : `Waiting ${relativeTime(r.dueAt, now).replace(' ago', '')}`}
+                  {' · '}{r.agentName ? `for ${r.agentName}` : 'anyone on the team'}
+                </p>
+              </div>
 
-            <MarkCallForm callTaskId={row.id} />
-          </CardContent>
-        </Card>
-      ))}
+              {(r.summary || INFORMATIVE_NOTES.has(r.reason) && r.notes) && (
+                <p className="bg-muted/70 rounded-xl px-3.5 py-2.5 text-sm leading-relaxed">
+                  <span className="text-muted-foreground mb-0.5 block text-[11px] font-medium uppercase tracking-wide">What we know</span>
+                  {r.summary || r.notes}
+                </p>
+              )}
+
+              <Button asChild className="w-full" variant={later ? 'outline' : 'default'}>
+                <a href={`tel:+${r.phone}`}><Phone className="size-4" /> Call {formatPhone(r.phone)}</a>
+              </Button>
+
+              <MarkCallForm callTaskId={r.id} />
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }

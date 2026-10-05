@@ -1,5 +1,9 @@
 import 'server-only';
+import { cache } from 'react';
 import { cookies } from 'next/headers';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { users } from '@/lib/db/schema';
 import { SignJWT, jwtVerify } from 'jose';
 import type { UserRole } from '@/lib/db/schema';
 
@@ -62,7 +66,26 @@ export async function clearSessionCookie(): Promise<void> {
  * The real authorisation check. `proxy.ts` only does an optimistic cookie
  * check; every protected page and route handler calls this.
  */
-export async function getSession(): Promise<SessionPayload | null> {
+/**
+ * The signed-in user — checked against the database, not just the cookie.
+ *
+ * The cookie alone stays valid for seven days, so before this a deactivated
+ * account, a deleted one, or an admin demoted to agent kept their access until
+ * it expired. Now the account must still exist and be active, and the role
+ * comes from the database. Cached for the request, so a layout and a page that
+ * both ask cost one query.
+ */
+export const getSession = cache(async (): Promise<SessionPayload | null> => {
   const jar = await cookies();
-  return decodeSession(jar.get(SESSION_COOKIE)?.value);
-}
+  const claimed = await decodeSession(jar.get(SESSION_COOKIE)?.value);
+  if (!claimed) return null;
+
+  const [user] = await db
+    .select({ id: users.id, email: users.email, role: users.role, active: users.active })
+    .from(users)
+    .where(eq(users.id, claimed.userId))
+    .limit(1);
+  if (!user || !user.active) return null;
+
+  return { userId: user.id, email: user.email, role: user.role === 'admin' ? 'admin' : 'agent' };
+});

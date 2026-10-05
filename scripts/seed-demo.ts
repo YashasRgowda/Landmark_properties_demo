@@ -122,6 +122,24 @@ const LEADS: Seed[] = [
     visit: { hoursFromNow: 24 * 6, status: 'BOOKED', label: 'next Sunday 11 AM' } },
 ];
 
+/**
+ * A visit "n hours from now" lands on that day at a real visiting hour — 11 AM
+ * or 4 PM — so a demo run at midnight does not show a visit at 2:54 AM. Visits
+ * in the past keep their day; a visit "today" that would already have passed
+ * is moved to this evening.
+ */
+function realisticVisitTime(now: number, hoursFromNow: number): Date {
+  const IST = 330 * 60_000;
+  const local = new Date(now + hoursFromNow * H + IST);
+  const at = (h: number) => new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), h, 0) - IST);
+  const morning = at(11);
+  const evening = at(16);
+  if (hoursFromNow < 0) return local.getUTCHours() < 14 ? morning : evening;
+  if (morning.getTime() > now) return morning;
+  if (evening.getTime() > now) return evening;
+  return new Date(morning.getTime() + 24 * H); // nothing left today: tomorrow morning
+}
+
 async function main() {
   const remove = process.argv.includes('--remove');
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set.');
@@ -175,7 +193,7 @@ async function main() {
       }
 
       if (s.visit) {
-        const visitAt = new Date(now + s.visit.hoursFromNow * H);
+        const visitAt = realisticVisitTime(now, s.visit.hoursFromNow);
         await sql`insert into visits (lead_id, visit_at, label, status, outcome_at)
           values (${lead.id}, ${visitAt}, ${s.visit.label}, ${s.visit.status},
                   ${s.visit.status === 'BOOKED' ? null : visitAt})`;

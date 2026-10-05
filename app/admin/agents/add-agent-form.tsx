@@ -12,8 +12,8 @@ export function AddAgentForm() {
   const [state, action, pending] = useActionState<AgentFormState, FormData>(addAgent, {});
 
   return (
-    <Card>
-      <CardHeader className="pb-3"><CardTitle className="text-base">Add an agent</CardTitle></CardHeader>
+    <Card className="rounded-2xl">
+      <CardHeader className="pb-3"><CardTitle className="text-base">Add someone to the team</CardTitle></CardHeader>
       <CardContent>
         <form action={action} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -31,7 +31,7 @@ export function AddAgentForm() {
             </div>
           </div>
           <fieldset className="space-y-1">
-            <legend className="text-sm font-medium">Sells in</legend>
+            <legend className="text-sm font-medium">Languages they speak</legend>
             <div className="flex flex-wrap gap-4 text-sm">
               {AGENT_LANGUAGES.map((l) => (
                 <label key={l} className="flex items-center gap-2 capitalize">
@@ -46,8 +46,8 @@ export function AddAgentForm() {
               {state.errors.map((e) => <li key={e}>{e}</li>)}
             </ul>
           )}
-          {state.added && <p className="text-sm">Added {state.added}.</p>}
-          <Button type="submit" disabled={pending}>{pending ? 'Adding…' : 'Add agent'}</Button>
+          {state.added && <p className="text-sm text-emerald-700">{state.added} is on the team. New buyers can go to them now.</p>}
+          <Button type="submit" disabled={pending}>{pending ? 'Adding…' : 'Add to team'}</Button>
         </form>
       </CardContent>
     </Card>
