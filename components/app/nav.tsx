@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Activity, Building2, CalendarCheck, LayoutDashboard, PhoneCall, Users, UsersRound,
+  Activity, Building2, CalendarCheck, Globe, LayoutDashboard, PhoneCall, Users, UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -11,7 +11,7 @@ export type NavCounts = { calls: number; visits: number; failed: number };
 
 const ICONS = {
   today: LayoutDashboard, leads: Users, calls: PhoneCall, visits: CalendarCheck,
-  project: Building2, team: UsersRound, health: Activity,
+  project: Building2, team: UsersRound, health: Activity, portal: Globe,
 };
 type Item = { href: string; label: string; icon: keyof typeof ICONS; count?: number; alert?: boolean };
 
@@ -23,6 +23,7 @@ export function Nav({ isAdmin, counts, variant = 'side' }: { isAdmin: boolean; c
     { href: '/app/calls', label: 'Calls to make', icon: 'calls', count: counts.calls, alert: true },
     { href: '/app/visits', label: 'Site visits', icon: 'visits', count: counts.visits },
   ];
+  const demo: Item[] = [{ href: '/app/demo/99acres', label: '99acres enquiry', icon: 'portal' }];
   const settings: Item[] = isAdmin ? [
     { href: '/admin/project', label: 'Project details', icon: 'project' },
     { href: '/admin/agents', label: 'Sales team', icon: 'team' },
@@ -56,13 +57,17 @@ export function Nav({ isAdmin, counts, variant = 'side' }: { isAdmin: boolean; c
   };
 
   if (variant === 'top') {
-    return <nav className="flex gap-1 overflow-x-auto px-4 pb-3">{[...work, ...settings].map(link)}</nav>;
+    return <nav className="flex gap-1 overflow-x-auto px-4 pb-3">{[...work, ...demo, ...settings].map(link)}</nav>;
   }
   return (
     <nav className="space-y-6">
       <div className="space-y-1">
         <p className="text-sidebar-foreground/45 px-3 pb-1 text-[11px] font-medium tracking-wider uppercase">Daily work</p>
         {work.map(link)}
+      </div>
+      <div className="space-y-1">
+        <p className="text-sidebar-foreground/45 px-3 pb-1 text-[11px] font-medium tracking-wider uppercase">Try it live</p>
+        {demo.map(link)}
       </div>
       {settings.length > 0 && (
         <div className="space-y-1">

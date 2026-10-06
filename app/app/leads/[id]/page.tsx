@@ -21,6 +21,7 @@ import {
 import { Avatar } from '@/components/app/lead-identity';
 import { Pill } from '@/components/app/pill';
 import { Button } from '@/components/ui/button';
+import { LiveRefresh } from '@/components/app/live-refresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +80,8 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
       text: `Phone call — ${CALL_OUTCOME[t.outcome ?? ''] ?? t.outcome ?? 'made'}${t.notes ? ` · ${t.notes}` : ''}`,
     })),
     ...allTouches.filter((t) => t.channel === 'portal').map((t): Entry => ({
-      at: t.happenedAt, kind: 'event', text: `Enquiry received from ${sourceName(lead.source)}`,
+      at: t.happenedAt, kind: 'event',
+      text: `Enquiry received from ${sourceName(lead.source)}${/“.+”/.exec(t.notes ?? '')?.[0] ? ` — ${/“.+”/.exec(t.notes ?? '')![0]}` : ''}`,
     })),
   ].sort((a, b) => a.at.getTime() - b.at.getTime()
     // Same moment: the enquiry came first, then our opening message.
@@ -108,6 +110,7 @@ export default async function LeadPage(props: PageProps<'/app/leads/[id]'>) {
 
   return (
     <div className="space-y-6">
+      <LiveRefresh every={3000} />
       <Link href="/app/leads" className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm">
         <ArrowLeft className="size-4" /> All leads
       </Link>

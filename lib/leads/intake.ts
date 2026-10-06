@@ -92,7 +92,7 @@ export async function intakeLead(input: IntakeArgs): Promise<IntakeOutcome> {
     channel: 'portal',
     direction: 'inbound',
     outcome: 'enquiry',
-    notes: describeEnquiry({ source, campaign, project, repeat: !created }),
+    notes: describeEnquiry({ source, campaign, project, message: input.message || null, repeat: !created }),
   });
 
   // The whole point of the system: a lead from 99acres or MagicBricks gets a
@@ -118,10 +118,12 @@ function describeEnquiry(args: {
   source: string;
   campaign: string | null;
   project: string | null;
+  message: string | null;
   repeat: boolean;
 }): string {
   const parts = [args.repeat ? 'Repeat enquiry' : 'Enquiry', `via ${args.source}`];
   if (args.project) parts.push(`for ${args.project}`);
   if (args.campaign) parts.push(`(campaign: ${args.campaign})`);
+  if (args.message) parts.push(`— “${args.message.slice(0, 300)}”`);
   return parts.join(' ');
 }

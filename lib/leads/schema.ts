@@ -13,6 +13,8 @@ export const IntakeSchema = z.object({
   source: z.string().trim().min(1, 'source is required').max(80),
   campaign: z.string().trim().max(200).optional().nullable(),
   project: z.string().trim().max(200).optional().nullable(),
+  /** What the buyer typed into the portal's enquiry box, if anything. */
+  message: z.string().trim().max(1000).optional().nullable(),
 });
 
 export type IntakeInput = z.infer<typeof IntakeSchema>;

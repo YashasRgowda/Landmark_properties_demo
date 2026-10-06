@@ -12,6 +12,7 @@ import { Pill } from '@/components/app/pill';
 import { Empty } from '@/components/app/panel';
 import { Button } from '@/components/ui/button';
 import { MarkCallForm } from './mark-call-form';
+import { LiveRefresh } from '@/components/app/live-refresh';
 
 export const metadata = { title: 'Calls to make · Landmark Lead Desk' };
 export const dynamic = 'force-dynamic';
@@ -38,6 +39,7 @@ export default async function CallsPage() {
 
   return (
     <div className="space-y-8">
+      <LiveRefresh every={10000} />
       <PageHeader
         title="Calls to make"
         description="Ring these people, most urgent first. After each call, tap what happened — the system takes care of the rest."

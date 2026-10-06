@@ -15,6 +15,7 @@ import { PageHeader } from '@/components/app/page-header';
 import { Empty, Panel, StatCard } from '@/components/app/panel';
 import { LeadIdentity } from '@/components/app/lead-identity';
 import { Pill } from '@/components/app/pill';
+import { LiveRefresh } from '@/components/app/live-refresh';
 
 export const metadata = { title: 'Today · Landmark Lead Desk' };
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,7 @@ export default async function TodayPage() {
 
   return (
     <div className="space-y-8">
+      <LiveRefresh every={15000} />
       <PageHeader eyebrow={formatIST(now, 'EEEE, d MMMM')} title={greeting(now)} description={summary} />
 
       <div className="space-y-3 empty:hidden">
