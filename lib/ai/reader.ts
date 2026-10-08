@@ -41,6 +41,10 @@ Return one JSON object with exactly these keys:
 Rules:
 - "language" is the language the BUYER writes in.
 - "asked_for_documents" is true if he asked FOR or ABOUT the khata, E-Khata, DC conversion, RERA, the layout plan, the encumbrance certificate or any approval. "Is it E-Khata?" counts. "Send me the khata" counts.
+- "asked_about_specific_plot" is true if he named a plot SIZE or dimension (30x40, 40x60, 1200 sq ft), a plot number, a facing, or asked which plots are free. "What is the price of a 30x40?" counts.
+- "interested_plot" is the size, dimension or plot number he asked about, in his own words.
+- "asked_about_loan" is true if he asked about a plot loan, EMI, bank finance or which banks fund it.
+- "asked_about_registration_or_possession" is true if he asked when registration happens, what it costs, or when he can take possession or start building.
 - "visit_agreed" is true only when he accepted a SPECIFIC day. "I will come sometime" is false. "Sunday 11 AM" is true.
 
 VISIT TIME — read the conversation to the END before answering these three keys.

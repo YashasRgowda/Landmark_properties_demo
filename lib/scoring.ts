@@ -161,7 +161,15 @@ export function scoreLead(facts: ReaderResult, entryPriceRupees: number | null):
   else if (facts.timeline === '3-6 months') add('Timeline 3–6 months', 2);
 
   if (facts.asked_about_registration_or_possession) add('Asked about registration or possession', 2);
-  if (facts.asked_about_specific_plot) add('Asked about a specific plot or dimension', 2);
+  /**
+   * Naming a size IS asking about a specific plot. The flag alone was unsafe:
+   * the Reader is asked for a judgement there, and a buyer whose whole first
+   * message was "price of a 30x40?" came back with it false. The plot he named
+   * is a fact rather than a judgement, so either one earns the points.
+   */
+  if (facts.asked_about_specific_plot || facts.interested_plot) {
+    add('Asked about a specific plot or dimension', 2);
+  }
   if (facts.asked_about_loan) add('Asked about plot loan', 1);
   if (facts.purpose) add('Purpose known', 1);
 

@@ -193,11 +193,34 @@ describe('scoring the lead the model described', () => {
       visit_agreed: true, visit_datetime_iso: '2026-09-27T11:00:00+05:30',
       asked_for_documents: false, budget: null, timeline: null, purpose: null,
       asked_about_registration_or_possession: false, asked_about_specific_plot: false,
-      asked_about_loan: false,
+      interested_plot: null, asked_about_loan: false,
     }), ENTRY);
     expect(r.score).toBe(4);
     expect(r.category).toBe('WARM');
     expect(r.reasons.some((x) => /Floor applied/.test(x.signal))).toBe(true);
+  });
+
+  it('THE BUG: naming a size counts even when the model says it did not', () => {
+    // The live chat that found this: "what is the price of a 30x40 plot?" came
+    // back with asked_about_specific_plot false, so the buyer scored 1.
+    const r = scoreLead(facts({
+      asked_about_specific_plot: false, interested_plot: '30x40',
+      visit_agreed: false, visit_datetime_iso: null, asked_for_documents: false,
+      budget: null, timeline: null, purpose: 'own_construction',
+      asked_about_registration_or_possession: false, asked_about_loan: false,
+    }), ENTRY);
+    expect(r.score).toBe(3);
+    expect(r.reasons.some((x) => /specific plot/.test(x.signal))).toBe(true);
+  });
+
+  it('a buyer who named nothing still scores nothing for it', () => {
+    const r = scoreLead(facts({
+      asked_about_specific_plot: false, interested_plot: null,
+      visit_agreed: false, visit_datetime_iso: null, asked_for_documents: false,
+      budget: null, timeline: null, purpose: null,
+      asked_about_registration_or_possession: false, asked_about_loan: false,
+    }), ENTRY);
+    expect(r.score).toBe(0);
   });
 
   it('the floor never demotes a lead that earned HOT', () => {
