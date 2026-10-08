@@ -17,7 +17,7 @@ const nothing: ReaderResult = {
   name: null, budget: null, timeline: null, purpose: null, interested_plot: null,
   language: 'english', asked_for_documents: false, asked_about_loan: false,
   asked_about_registration_or_possession: false, asked_about_specific_plot: false,
-  asked_about_price_or_offer: false, engaged: false,
+  asked_about_price_or_offer: false, wants_a_call: false, engaged: false,
   visit_agreed: false, visit_datetime_iso: null, visit_label: null,
   disqualified: false, disqualify_reason: null, summary: '',
 };

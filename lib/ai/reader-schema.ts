@@ -16,6 +16,8 @@ export const ReaderSchema = z.object({
   asked_about_registration_or_possession: z.boolean().catch(false),
   asked_about_specific_plot: z.boolean().catch(false),
   asked_about_price_or_offer: z.boolean().catch(false),
+  /** He asked for a person to ring him — a promise we must keep. */
+  wants_a_call: z.boolean().catch(false),
   /** Is this a real conversation, or someone barely replying? */
   engaged: z.boolean().catch(false),
   visit_agreed: z.boolean().catch(false),
@@ -144,7 +146,7 @@ export function coerceReaderRaw(raw: Record<string, unknown>): Record<string, un
 
   for (const key of ['asked_for_documents', 'asked_about_loan', 'visit_agreed',
     'asked_about_registration_or_possession', 'asked_about_specific_plot',
-    'asked_about_price_or_offer', 'engaged', 'disqualified']) {
+    'asked_about_price_or_offer', 'wants_a_call', 'engaged', 'disqualified']) {
     const coerced = coerceBoolean(out[key]);
     if (coerced !== undefined) out[key] = coerced;
   }

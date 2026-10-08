@@ -77,6 +77,25 @@ export const runReader: TaskHandler = async ({ task, log }) => {
     log('HOT — escalation to an agent queued');
   }
 
+  /**
+   * He asked for a person to ring him — usually to push the price past what
+   * Meera may offer. She says someone will call, so somebody has to: without
+   * this the promise was made on WhatsApp and nothing reached the call list.
+   *
+   * Handled by the same escalation as a HOT lead, because the buyer needs the
+   * same thing: an owner, and that owner's phone ringing.
+   */
+  if (facts.wants_a_call && category !== 'REJECT' && category !== 'HOT') {
+    await enqueue({
+      type: 'ESCALATE_TO_AGENT',
+      leadId,
+      dueAt: new Date(),
+      payload: { reason: 'CALLBACK' },
+      idempotencyKey: `escalate:asked:${leadId}`,
+    });
+    log('he asked to be called — escalation queued');
+  }
+
   if (facts.visit_agreed && facts.visit_datetime_iso) {
     log(await bookVisit(leadId, facts.visit_datetime_iso, facts.visit_label, project));
   }

@@ -31,6 +31,7 @@ Return one JSON object with exactly these keys:
   "asked_about_registration_or_possession": boolean,
   "asked_about_specific_plot": boolean,
   "asked_about_price_or_offer": boolean,
+  "wants_a_call": boolean,
   "engaged": boolean,
   "visit_agreed": boolean,
   "visit_datetime_iso": string or null,
@@ -43,6 +44,7 @@ Return one JSON object with exactly these keys:
 Rules:
 - "language" is the language the BUYER writes in.
 - "asked_for_documents" is true if he asked FOR or ABOUT the khata, E-Khata, DC conversion, RERA, the layout plan, the encumbrance certificate or any approval. "Is it E-Khata?" counts. "Send me the khata" counts.
+- "wants_a_call" is true if he asked to be phoned, asked for someone's number, asked to speak to a person or the sales head, or agreed when we offered to have someone call him. "Shall I have Ravi call you?" ... "fine" counts.
 - "asked_about_price_or_offer" is true if he asked the price or rate, asked for a discount, haggled, said the price is too high, or asked what offers are running.
 - "engaged" is true if the buyer is genuinely talking to us about buying a plot here: he asks questions, answers ours, negotiates, or gives his requirements. It is FALSE only for someone who barely replies ("ok", "hmm", "later"), talks about something unrelated, or never engages with the project at all. A buyer who argues about the price IS engaged.
 - "asked_about_specific_plot" is true if he named a plot SIZE or dimension (30x40, 40x60, 1200 sq ft), a plot number, a facing, or asked which plots are free. "What is the price of a 30x40?" counts.

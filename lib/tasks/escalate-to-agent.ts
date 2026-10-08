@@ -14,6 +14,8 @@ import type { TaskHandler } from './types';
  * no call is just a name on a list.
  */
 export const escalateToAgent: TaskHandler = async ({ task, log }) => {
+  const payload = (task.payload ?? {}) as { reason?: 'HOT_LEAD' | 'CALLBACK' };
+  const reason = payload.reason === 'CALLBACK' ? 'CALLBACK' : 'HOT_LEAD';
   const leadId = task.leadId;
   if (!leadId) {
     log('no lead on this task');
@@ -68,15 +70,17 @@ export const escalateToAgent: TaskHandler = async ({ task, log }) => {
 
   const result = await createCallTask({
     leadId: lead.id,
-    reason: 'HOT_LEAD',
+    reason,
     dueAt: new Date(),
     priority: PRIORITY_TOP,
     agentId: ownerId,
     notes: brief(lead),
-    idempotencyKey: `call:hot:${lead.id}`,
+    // A buyer promised a call and a buyer who scored HOT are two different
+    // promises, so one must not swallow the other.
+    idempotencyKey: `call:${reason === 'CALLBACK' ? 'asked' : 'hot'}:${lead.id}`,
   });
 
-  log(result.created ? 'hot-lead call queued at the top' : `no call queued — ${result.why}`);
+  log(result.created ? `${reason} call queued at the top` : `no call queued — ${result.why}`);
 };
 
 /** What the agent needs to know before the phone rings, in one line. */
