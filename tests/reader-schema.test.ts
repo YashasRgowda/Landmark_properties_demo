@@ -77,20 +77,25 @@ describe('parseReaderOutput', () => {
 });
 
 describe('the promise of a call', () => {
+  const read = (json: string) => {
+    const r = parseReaderOutput(json);
+    if (!r) throw new Error(`could not parse: ${json}`);
+    return r;
+  };
+
   it('reads "wants_a_call" however the model writes the boolean', () => {
     for (const raw of [true, 'true', 'True', 'yes', 1]) {
-      expect(parseReaderOutput(JSON.stringify({ summary: 'x', wants_a_call: raw })).wants_a_call)
-        .toBe(true);
+      expect(read(JSON.stringify({ summary: 'x', wants_a_call: raw })).wants_a_call).toBe(true);
     }
   });
 
   it('defaults to false rather than promising a call nobody asked for', () => {
-    expect(parseReaderOutput('{"summary":"x"}').wants_a_call).toBe(false);
-    expect(parseReaderOutput('{"summary":"x","wants_a_call":"maybe"}').wants_a_call).toBe(false);
+    expect(read('{"summary":"x"}').wants_a_call).toBe(false);
+    expect(read('{"summary":"x","wants_a_call":"maybe"}').wants_a_call).toBe(false);
   });
 
   it('reads the new engagement and price signals the same way', () => {
-    const r = parseReaderOutput('{"summary":"x","engaged":"yes","asked_about_price_or_offer":"TRUE"}');
+    const r = read('{"summary":"x","engaged":"yes","asked_about_price_or_offer":"TRUE"}');
     expect(r.engaged).toBe(true);
     expect(r.asked_about_price_or_offer).toBe(true);
   });

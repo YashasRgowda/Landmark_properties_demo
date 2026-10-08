@@ -1,7 +1,7 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { leads, visits } from '@/lib/db/schema';
+import { leads, messages, visits } from '@/lib/db/schema';
 import { readConversation } from '@/lib/ai/reader';
 import { getProjectData, type ProjectInfo } from '@/lib/project-data';
 import { parseBudgetToRupees, scoreLead } from '@/lib/scoring';
@@ -78,14 +78,22 @@ export const runReader: TaskHandler = async ({ task, log }) => {
   }
 
   /**
-   * He asked for a person to ring him — usually to push the price past what
-   * Meera may offer. She says someone will call, so somebody has to: without
-   * this the promise was made on WhatsApp and nothing reached the call list.
+   * Somebody must actually ring him.
    *
-   * Handled by the same escalation as a HOT lead, because the buyer needs the
-   * same thing: an owner, and that owner's phone ringing.
+   * Two ways we end up owing a buyer a call, and the first is the one that
+   * matters: Meera herself said so. When she cannot go further on price, or is
+   * asked something she may not answer, she hands over the sales head's number
+   * and says he will call. That promise was made on WhatsApp; without this it
+   * reached nothing, and the buyer waited for a call nobody knew about.
+   *
+   * So the trigger is our own words, not the model's judgement of his. Asking
+   * the Reader whether a buyer "wants a call" works only when he says it
+   * outright — answer "fine" to "shall I have Ravi call you?" and a sentence
+   * of context decides it. What we promised is a fact, and it is in our
+   * outbound messages.
    */
-  if (facts.wants_a_call && category !== 'REJECT' && category !== 'HOT') {
+  const promised = await weOfferedACall(leadId, project);
+  if ((promised || facts.wants_a_call) && category !== 'REJECT' && category !== 'HOT') {
     await enqueue({
       type: 'ESCALATE_TO_AGENT',
       leadId,
@@ -93,13 +101,35 @@ export const runReader: TaskHandler = async ({ task, log }) => {
       payload: { reason: 'CALLBACK' },
       idempotencyKey: `escalate:asked:${leadId}`,
     });
-    log('he asked to be called — escalation queued');
+    log(promised ? 'we promised him a call — escalation queued' : 'he asked to be called — escalation queued');
   }
 
   if (facts.visit_agreed && facts.visit_datetime_iso) {
     log(await bookVisit(leadId, facts.visit_datetime_iso, facts.visit_label, project));
   }
 };
+
+/**
+ * Did we hand this buyer to a human?
+ *
+ * Meera gives out the sales head's number only when she is handing over, so
+ * the number appearing in anything we sent is the handover. Compared on digits
+ * alone: "+91 98450 00000" and "9845000000" are the same promise.
+ */
+async function weOfferedACall(leadId: string, project: ProjectInfo): Promise<boolean> {
+  const digits = (text: string) => text.replace(/\D/g, '');
+  const head = digits(project.sales_head.phone ?? '').slice(-10);
+  if (head.length !== 10) return false;
+
+  const sent = await db
+    .select({ body: messages.body })
+    .from(messages)
+    .where(and(eq(messages.leadId, leadId), eq(messages.direction, 'outbound')))
+    .orderBy(desc(messages.sentAt))
+    .limit(12);
+
+  return sent.some((m) => digits(m.body ?? '').includes(head));
+}
 
 /**
  * Book the visit, or move it.
