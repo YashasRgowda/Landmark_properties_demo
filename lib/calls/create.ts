@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agents, callTasks, leads, touches, type CallOutcome, type CallReason } from '@/lib/db/schema';
 
@@ -107,12 +107,38 @@ export async function completeCallTask(args: {
   return { ok: true, leadId: task.leadId };
 }
 
-/** An inbound reply means the buyer is talking again; the chase call is moot. */
-export async function cancelPendingCallTasks(leadId: string, why: string): Promise<number> {
+/**
+ * The calls that exist ONLY because the buyer had gone quiet. A reply makes
+ * these moot — there is no point ringing a man to ask why he is not replying
+ * while he is replying.
+ *
+ * Every other reason survives a reply, and that distinction matters: we once
+ * cancelled the lot. A buyer asked for the sales head to call, then carried on
+ * chatting, and his callback was wiped forty seconds after it was raised. The
+ * same happened to HOT_LEAD calls, so the buyers who most needed a human got
+ * one only if they stopped talking to us.
+ */
+export const QUIET_CALL_REASONS = [
+  'PHONE_ONLY', 'DELIVERED_UNREAD', 'READ_NO_REPLY', 'CHASE',
+] as const satisfies readonly CallReason[];
+
+/**
+ * Cancel this lead's open calls. With `onlyReasons`, just those kinds —
+ * without it, every one, which is what opting out requires.
+ */
+export async function cancelPendingCallTasks(
+  leadId: string,
+  why: string,
+  onlyReasons?: readonly CallReason[],
+): Promise<number> {
   const cancelled = await db
     .update(callTasks)
     .set({ status: 'CANCELLED', notes: why, completedAt: new Date() })
-    .where(and(eq(callTasks.leadId, leadId), eq(callTasks.status, 'PENDING')))
+    .where(and(
+      eq(callTasks.leadId, leadId),
+      eq(callTasks.status, 'PENDING'),
+      ...(onlyReasons ? [inArray(callTasks.reason, [...onlyReasons])] : []),
+    ))
     .returning({ id: callTasks.id });
 
   return cancelled.length;

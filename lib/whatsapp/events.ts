@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, messages, touches, type Lead } from '@/lib/db/schema';
 import { normalisePhone } from '@/lib/phone';
-import { cancelPendingCallTasks } from '@/lib/calls/create';
+import { cancelPendingCallTasks, QUIET_CALL_REASONS } from '@/lib/calls/create';
 import { cancelActiveChase } from '@/lib/chase-engine';
 import { cancelPendingTasksForLead } from '@/lib/queue';
 import { isOptOutMessage } from './opt-out';
@@ -129,10 +129,14 @@ async function processInbound(event: InboundMessageEvent): Promise<ProcessResult
   if (lead.optedOut) return { handled: true, leadId: lead.id, reason: 'lead has opted out' };
 
   // He is talking to us, so a call queued because he was NOT talking to us is
-  // moot. Never fatal: this is housekeeping sitting in front of the reply, and
-  // an error here must not cost the buyer his answer.
+  // moot. Only those: a hot-lead handover or a callback he asked for is a
+  // promise, and him chatting on is no reason to break it. Never fatal: this
+  // is housekeeping sitting in front of the reply, and an error here must not
+  // cost the buyer his answer.
   try {
-    const stale = await cancelPendingCallTasks(lead.id, 'he replied on WhatsApp');
+    const stale = await cancelPendingCallTasks(
+      lead.id, 'he replied on WhatsApp', QUIET_CALL_REASONS,
+    );
     if (stale > 0) console.log(`[whatsapp] cancelled ${stale} call task(s); the buyer replied`);
   } catch (error) {
     console.error('[whatsapp] could not cancel the queued call; replying anyway', error);
