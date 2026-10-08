@@ -170,6 +170,7 @@ export function scoreLead(facts: ReaderResult, entryPriceRupees: number | null):
   if (facts.asked_about_specific_plot || facts.interested_plot) {
     add('Asked about a specific plot or dimension', 2);
   }
+  if (facts.asked_about_price_or_offer) add('Asked the price or pushed for a better one', 2);
   if (facts.asked_about_loan) add('Asked about plot loan', 1);
   if (facts.purpose) add('Purpose known', 1);
 
@@ -177,6 +178,19 @@ export function scoreLead(facts: ReaderResult, entryPriceRupees: number | null):
   let category = categorise(score);
 
   const hasVisit = Boolean(facts.visit_agreed && facts.visit_datetime_iso);
+
+  /**
+   * A real conversation, by the Reader's judgement or by the buyer having
+   * given us something concrete. Either alone is enough: the judgement covers
+   * the chatty buyer who commits to nothing, and the facts cover the terse one
+   * who still told us what he wants.
+   */
+  const talking = facts.engaged || Boolean(
+    facts.budget || facts.timeline || facts.purpose || facts.interested_plot ||
+    facts.asked_for_documents || facts.asked_about_loan ||
+    facts.asked_about_registration_or_possession || facts.asked_about_specific_plot ||
+    facts.asked_about_price_or_offer || facts.visit_agreed,
+  );
   const canAffordIt =
     entryPriceRupees !== null && entryPriceRupees > 0 &&
     budget !== null && budget >= entryPriceRupees;
@@ -198,6 +212,19 @@ export function scoreLead(facts: ReaderResult, entryPriceRupees: number | null):
       signal: 'Promoted to HOT: a confirmed visit from a buyer who can afford the plot',
       points: 0,
     });
+  } else if (talking && category === 'COLD') {
+    /**
+     * COLD means a buyer we cannot get a conversation out of — no reply, a
+     * one-word reply, or talk that has nothing to do with the project. It does
+     * NOT mean a buyer who is talking to us properly but has not yet named a
+     * budget or a date. Haggling over the price is the opposite of cold.
+     *
+     * The table is built out of the facts a buyer hands over, so someone who
+     * asks a lot and commits to nothing scores low on it. The floor keeps that
+     * from reading as "ignore him" on the agent's screen.
+     */
+    category = 'WARM';
+    reasons.push({ signal: 'Floor applied: a buyer who is really talking to us is never COLD', points: 0 });
   } else if (hasVisit && category === 'COLD') {
     // And a booked visit is never COLD. On the raw table a visit alone scores
     // 4, which would bury the one lead who should be near the top.

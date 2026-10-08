@@ -17,6 +17,7 @@ const nothing: ReaderResult = {
   name: null, budget: null, timeline: null, purpose: null, interested_plot: null,
   language: 'english', asked_for_documents: false, asked_about_loan: false,
   asked_about_registration_or_possession: false, asked_about_specific_plot: false,
+  asked_about_price_or_offer: false, engaged: false,
   visit_agreed: false, visit_datetime_iso: null, visit_label: null,
   disqualified: false, disqualify_reason: null, summary: '',
 };
@@ -214,7 +215,8 @@ describe('a confirmed visit from a buyer who can afford it', () => {
   });
 
   it('is not promoted without a visit, however rich he is', () => {
-    expect(scoreLead(withFacts({ budget: '5 crore' }), ENTRY).category).toBe('COLD');
+    // Money alone is not a visit: he is WARM, never HOT, until he agrees a day.
+    expect(scoreLead(withFacts({ budget: '5 crore' }), ENTRY).category).toBe('WARM');
   });
 
   it('a disqualified lead is still REJECT', () => {

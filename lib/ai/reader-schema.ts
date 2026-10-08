@@ -15,6 +15,9 @@ export const ReaderSchema = z.object({
   asked_about_loan: z.boolean().catch(false),
   asked_about_registration_or_possession: z.boolean().catch(false),
   asked_about_specific_plot: z.boolean().catch(false),
+  asked_about_price_or_offer: z.boolean().catch(false),
+  /** Is this a real conversation, or someone barely replying? */
+  engaged: z.boolean().catch(false),
   visit_agreed: z.boolean().catch(false),
   visit_datetime_iso: z.string().trim().max(40).nullable().catch(null),
   visit_label: z.string().trim().max(80).nullable().catch(null),
@@ -140,7 +143,8 @@ export function coerceReaderRaw(raw: Record<string, unknown>): Record<string, un
   const out: Record<string, unknown> = { ...raw };
 
   for (const key of ['asked_for_documents', 'asked_about_loan', 'visit_agreed',
-    'asked_about_registration_or_possession', 'asked_about_specific_plot', 'disqualified']) {
+    'asked_about_registration_or_possession', 'asked_about_specific_plot',
+    'asked_about_price_or_offer', 'engaged', 'disqualified']) {
     const coerced = coerceBoolean(out[key]);
     if (coerced !== undefined) out[key] = coerced;
   }

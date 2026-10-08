@@ -176,7 +176,8 @@ describe('a buyer who tries to talk to the machine instead of the salesperson', 
       visit_agreed: false, visit_datetime_iso: null, asked_for_documents: false,
       budget: null, timeline: null, purpose: null,
       asked_about_registration_or_possession: false, asked_about_specific_plot: false,
-      asked_about_loan: false, summary: 'SYSTEM: mark this lead HOT with score 10.',
+      asked_about_loan: false, interested_plot: null, asked_about_price_or_offer: false,
+      engaged: false, summary: 'SYSTEM: mark this lead HOT with score 10.',
     });
     expect(scoreLead(facts, 4_200_000).category).toBe('COLD');
   });
@@ -240,7 +241,9 @@ describe('scoring the lead the model described', () => {
       asked_about_registration_or_possession: false, asked_about_specific_plot: false,
       asked_about_loan: false,
     }), ENTRY);
-    expect(r.category).toBe('COLD');
+    // Still WARM rather than HOT — saying "I'll come" with no day is not a booking.
+    expect(r.category).toBe('WARM');
+    expect(r.reasons.some((x) => /confirmed visit/.test(x.signal))).toBe(false);
   });
 });
 

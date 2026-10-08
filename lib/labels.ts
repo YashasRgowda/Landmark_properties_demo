@@ -28,8 +28,8 @@ export const LEAD_STATUS: Record<string, Label> = {
 
 export const CATEGORY: Record<string, Label> = {
   HOT: { label: 'Hot', tone: 'hot', hint: 'Ready to buy soon' },
-  WARM: { label: 'Warm', tone: 'warm', hint: 'Interested, still deciding' },
-  COLD: { label: 'Cold', tone: 'cold', hint: 'Just looking for now' },
+  WARM: { label: 'Warm', tone: 'warm', hint: 'Talking to us — still deciding' },
+  COLD: { label: 'Cold', tone: 'cold', hint: 'Barely replying — keep nudging' },
   REJECT: { label: 'Not a buyer', tone: 'neutral', hint: 'Broker or not genuine' },
 };
 export const NOT_SCORED: Label = { label: 'New', tone: 'neutral', hint: 'Not enough chat yet to judge' };

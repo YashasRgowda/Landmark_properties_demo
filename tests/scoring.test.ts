@@ -8,6 +8,7 @@ const blank: ReaderResult = {
   name: null, budget: null, timeline: null, purpose: null, interested_plot: null,
   language: 'english', asked_for_documents: false, asked_about_loan: false,
   asked_about_registration_or_possession: false, asked_about_specific_plot: false,
+  asked_about_price_or_offer: false, engaged: false,
   visit_agreed: false, visit_datetime_iso: null, visit_label: null,
   disqualified: false, disqualify_reason: null, summary: '',
 };
@@ -89,8 +90,18 @@ describe('scoreLead', () => {
     expect(warm.category).toBe('WARM');
   });
 
-  it('marks a browser COLD', () => {
-    expect(scoreLead({ ...blank, asked_about_loan: true }, ENTRY).category).toBe('COLD');
+  it('marks someone we cannot get a word out of COLD', () => {
+    expect(scoreLead({ ...blank, engaged: false }, ENTRY).category).toBe('COLD');
+  });
+
+  it('but a buyer asking about a loan is talking to us, so never COLD', () => {
+    expect(scoreLead({ ...blank, asked_about_loan: true }, ENTRY).category).toBe('WARM');
+  });
+
+  it('haggling over the price is interest, not disinterest', () => {
+    const r = scoreLead({ ...blank, asked_about_price_or_offer: true, engaged: true }, ENTRY);
+    expect(r.category).toBe('WARM');
+    expect(r.reasons.some((x) => /price/.test(x.signal))).toBe(true);
   });
 
   it('explains itself', () => {
