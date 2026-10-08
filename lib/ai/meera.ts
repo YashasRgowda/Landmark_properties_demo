@@ -1,8 +1,10 @@
 import 'server-only';
+import { formatInTimeZone } from 'date-fns-tz';
 import { asc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leads, messages, type Lead } from '@/lib/db/schema';
 import { getProjectData, type ProjectInfo } from '@/lib/project-data';
+import { TIMEZONE } from '@/lib/time-window';
 import { runAI } from './run';
 import type { AIMessage } from './provider';
 import {
@@ -24,10 +26,34 @@ import {
 /** How much of the conversation she sees. Enough for context, not the world. */
 const HISTORY_LIMIT = 24;
 
+/**
+ * The next week, spelled out.
+ *
+ * A model cannot work out that the day after Friday is Saturday any more
+ * reliably than it can add up a price, and it has no clock at all. Asked to
+ * confirm "tomorrow at 11 AM" it called tomorrow Sunday, on a Friday night —
+ * the booking was right, the buyer would have arrived a day late. So the days
+ * are handed to it already named, and naming any other is forbidden.
+ */
+function calendar(now: Date): string {
+  const day = (offset: number) => {
+    const d = new Date(now.getTime() + offset * 86_400_000);
+    return formatInTimeZone(d, TIMEZONE, 'EEEE d MMMM');
+  };
+  const rest = [2, 3, 4, 5, 6, 7].map((n) => `- in ${n} days: ${day(n)}`).join('\n');
+  return `Right now it is ${formatInTimeZone(now, TIMEZONE, "EEEE d MMMM yyyy, h:mm a")} India time.
+
+The calendar, so you never have to work a date out:
+- today: ${day(0)}
+- tomorrow: ${day(1)}
+${rest}`;
+}
+
 export function buildSystemPrompt(
   project: ProjectInfo,
   lead: Pick<Lead, 'name'>,
   language: Language,
+  now: Date = new Date(),
 ): string {
   const plots = project.plots
     .map((p) => `- ${p.size} (${p.sqft} sq ft) — ${p.price} — ${p.available} available${p.facing ? `, ${p.facing} facing` : ''}`)
@@ -106,7 +132,14 @@ Find out, naturally and one question at a time, never as a form:
 
 Ask one question per message at most, and only after you have answered his.
 
-Your goal is a site visit on a specific day and time, within ${project.site_timings}. When he agrees, pin it down: "Sunday 11 AM — shall I confirm that?" Never leave it as "sometime this week".`;
+Your goal is a site visit on a specific day and time, within ${project.site_timings}. When he agrees, pin it down — repeat the day and the hour back to him and ask him to confirm. Never leave it as "sometime this week".
+
+DATES AND DAYS
+${calendar(now)}
+
+- Never name a weekday or a date that is not in that list. Do not work one out.
+- When you confirm a visit, give the day name AND the date from the list, so there can be no confusion: "tomorrow, Saturday 10 October, at 11 AM".
+- A time he gives is India time, and the site is only open ${project.site_timings}. If he asks for a time outside that, say so warmly and offer the nearest time inside it.`;
 }
 
 /** The message sent when the AI cannot be reached. The buyer never sees an error. */

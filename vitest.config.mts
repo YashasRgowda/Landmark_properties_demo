@@ -12,6 +12,12 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: { '@': import.meta.dirname },
+    alias: {
+      '@': import.meta.dirname,
+      // Server modules carry the 'server-only' marker, which throws outside a
+      // Server Component. Under the test runner it resolves to the package's
+      // own empty build, exactly as it does in the server bundle.
+      'server-only': new URL('./tests/stubs/server-only.ts', import.meta.url).pathname,
+    },
   },
 });
