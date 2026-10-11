@@ -29,7 +29,11 @@ export type TemplateChoice = { template: string; language: string; variables: st
 export function templateFor(kind: TemplateKind, name: string | null, extra: string[] = []): TemplateChoice {
   const template = process.env[ENV[kind].name]?.trim() || 'hello_world';
   const language = process.env[ENV[kind].lang]?.trim() || 'en_US';
-  const first = (name ?? '').trim().split(/\s+/)[0] || 'there';
+  // A portal hands over whatever the buyer typed, and plenty type in lower
+  // case. "Hi varshini" is the first thing she reads from us, so it is worth
+  // the one line. Non-Latin scripts have no case and are left as they are.
+  const raw = (name ?? '').trim().split(/\s+/)[0] || 'there';
+  const first = raw.charAt(0).toUpperCase() + raw.slice(1);
   return {
     template,
     language,
