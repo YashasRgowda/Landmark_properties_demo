@@ -22,7 +22,7 @@ export async function addAgent(_prev: AgentFormState, formData: FormData): Promi
 
   const errors: string[] = [];
   if (!name) errors.push('Name is required.');
-  if (languages.length === 0) errors.push('Pick at least one language he or she can sell in.');
+  if (languages.length === 0) errors.push('Pick at least one language they can sell in.');
   const phone = phoneRaw ? normalisePhone(phoneRaw) : null;
   if (phoneRaw && !phone) errors.push('That phone number is not a valid Indian number.');
   if (email && !/^\S+@\S+\.\S+$/.test(email)) errors.push('That email address does not look right.');

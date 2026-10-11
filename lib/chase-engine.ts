@@ -215,7 +215,7 @@ export async function sweepChases(options: SweepOptions = {}): Promise<SweepRepo
           leadId: String(r.id),
           reason: 'VISIT_CHECK',
           dueAt: now,
-          notes: `His visit was ${describeVisit(new Date(visit.visit_at))}. Did he come? Mark it on his page.`,
+          notes: `The visit was ${describeVisit(new Date(visit.visit_at))}. Did they come? Mark it on their page.`,
           idempotencyKey: `call:visit-check:${visit.id}`,
         });
         if (call.created) report.visitChecks++;
@@ -267,10 +267,10 @@ export async function afterCallOutcome(leadId: string, outcome: CallOutcome): Pr
         leadId,
         reason: 'CALLBACK',
         dueAt: at,
-        notes: 'He picked up and asked to be rung back',
+        notes: 'Picked up and asked to be rung back',
         idempotencyKey: `call:callback:${leadId}:${Date.now()}`,
       });
-      await db.update(leads).set({ nextAction: 'Call him back', nextActionAt: at, updatedAt: new Date() })
+      await db.update(leads).set({ nextAction: 'Call them back', nextActionAt: at, updatedAt: new Date() })
         .where(eq(leads.id, leadId));
       return `callback booked for ${describeVisit(at)}`;
     }

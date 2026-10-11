@@ -64,7 +64,7 @@ export const CHASE_STEPS: Record<ChaseState, ChaseStep[]> = {
   // Booked and did not come: same day, next day, then a new date.
   NO_SHOW: [
     { kind: 'whatsapp', day: 0, purpose: 'missed_visit' },
-    { kind: 'call', day: 1, hour: 11, note: 'Missed his site visit — call and rebook' },
+    { kind: 'call', day: 1, hour: 11, note: 'Missed the site visit — call and rebook' },
     { kind: 'whatsapp', day: 2, hour: 12, purpose: 'new_date' },
   ],
   // Visited, then quiet (he enters a day after the visit): feedback now,
@@ -91,7 +91,7 @@ export const CHASE_LABELS: Record<ChaseState, string> = {
   NEVER_ANSWERED: 'Never replied',
   WA_GHOST: 'Stopped replying',
   CALL_GHOST: 'Not answering calls',
-  NO_SHOW: 'Missed his visit',
+  NO_SHOW: 'Missed the visit',
   POST_VISIT_SILENT: 'Quiet after visiting',
   LATE_STAGE: 'Was close to buying',
   COLD_DRIP: 'Monthly update',

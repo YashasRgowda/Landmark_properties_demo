@@ -89,7 +89,7 @@ export async function markVisit(formData: FormData): Promise<void> {
   // cancelled rather than recorded as a call that happened.
   await db
     .update(callTasks)
-    .set({ status: 'CANCELLED', notes: `visit marked ${outcome} on his page`, completedAt: new Date() })
+    .set({ status: 'CANCELLED', notes: `visit marked ${outcome} on their page`, completedAt: new Date() })
     .where(and(eq(callTasks.leadId, visit.leadId), eq(callTasks.status, 'PENDING'), eq(callTasks.reason, 'VISIT_CHECK')));
 
   if (outcome === 'ATTENDED') {
