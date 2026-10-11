@@ -39,18 +39,28 @@ export function ProjectEditor({ initial }: { initial: ProjectForm }) {
           <div className="text-muted-foreground grid grid-cols-[1fr_1fr_1fr_1fr_1.4fr] gap-2 text-xs font-medium">
             <span>Size</span><span>Sq ft</span><span>Price</span><span>Available</span><span>Facing</span>
           </div>
-          {Array.from({ length: PLOT_ROWS }, (_, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1.4fr] gap-2">
-              <Input name={`plot_size_${i}`} defaultValue={v[`plot_size_${i}`] ?? ''} placeholder="30x40" aria-label={`Row ${i + 1} size`} />
-              <Input name={`plot_sqft_${i}`} defaultValue={v[`plot_sqft_${i}`] ?? ''} placeholder="1200" aria-label={`Row ${i + 1} sq ft`} />
-              <Input name={`plot_price_${i}`} defaultValue={v[`plot_price_${i}`] ?? ''} placeholder="₹42 lakh" aria-label={`Row ${i + 1} price`} />
-              <Input name={`plot_available_${i}`} defaultValue={v[`plot_available_${i}`] ?? ''} placeholder="14" aria-label={`Row ${i + 1} available`} />
-              <Input name={`plot_facing_${i}`} defaultValue={v[`plot_facing_${i}`] ?? ''} placeholder="East and North" aria-label={`Row ${i + 1} facing`} />
-            </div>
-          ))}
+          {Array.from({ length: PLOT_ROWS }, (_, i) => {
+            /**
+             * Only the first empty row shows an example. Every spare row used
+             * to carry the same hint text — "30x40 / 1200 / ₹42 lakh" in grey —
+             * so four real plots looked like eight, half of them duplicates.
+             */
+            const filled = Boolean(v[`plot_size_${i}`]);
+            const firstSpare = !filled && (i === 0 || Boolean(v[`plot_size_${i - 1}`]));
+            const hint = (text: string) => (firstSpare ? text : '');
+            return (
+              <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1.4fr] gap-2">
+                <Input name={`plot_size_${i}`} defaultValue={v[`plot_size_${i}`] ?? ''} placeholder={hint('30x40')} aria-label={`Row ${i + 1} size`} />
+                <Input name={`plot_sqft_${i}`} defaultValue={v[`plot_sqft_${i}`] ?? ''} placeholder={hint('1200')} aria-label={`Row ${i + 1} sq ft`} />
+                <Input name={`plot_price_${i}`} defaultValue={v[`plot_price_${i}`] ?? ''} placeholder={hint('₹42 lakh')} aria-label={`Row ${i + 1} price`} />
+                <Input name={`plot_available_${i}`} defaultValue={v[`plot_available_${i}`] ?? ''} placeholder={hint('14')} aria-label={`Row ${i + 1} available`} />
+                <Input name={`plot_facing_${i}`} defaultValue={v[`plot_facing_${i}`] ?? ''} placeholder={hint('East and North')} aria-label={`Row ${i + 1} facing`} />
+              </div>
+            );
+          })}
           <p className="text-muted-foreground text-xs">
-            Leave a row&apos;s size empty to remove it. The starting price Meera quotes is worked out from
-            the cheapest plot.
+            Blank rows are spare — fill one in to add a plot, or clear a row&apos;s size to remove it.
+            The &ldquo;from&rdquo; price Meera quotes is worked out from the cheapest plot.
           </p>
         </CardContent>
       </Card>
