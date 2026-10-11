@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSystemPrompt } from '@/lib/ai/meera';
+import { buildSystemPrompt, tidy } from '@/lib/ai/meera';
 import { DEMO_ASHRAYA } from '@/lib/project-data-values';
 
 /**
@@ -40,5 +40,19 @@ describe('the calendar Meera is given', () => {
 
   it('tells her the site hours and to stay inside them', () => {
     expect(prompt(FRIDAY_NIGHT_IST)).toContain('the site is only open');
+  });
+});
+
+describe('our own document markers', () => {
+  it('never reach the buyer, however the model writes them', () => {
+    const out = tidy('Sending them now. [document: DC conversion order][document: RERA certificate]');
+    expect(out).toBe('Sending them now.');
+    expect(tidy('Here you go [Document: E-Khata certificate] — anything else?'))
+      .toBe('Here you go — anything else?');
+  });
+
+  it('leaves ordinary brackets alone', () => {
+    expect(tidy('The plot (30x40) is ready [subject to approval].'))
+      .toBe('The plot (30x40) is ready [subject to approval].');
   });
 });

@@ -171,7 +171,12 @@ export async function loadHistory(leadId: string): Promise<AIMessage[]> {
 
   const turns = rows.slice(-HISTORY_LIMIT).map((m) => ({
     role: m.direction === 'inbound' ? ('user' as const) : ('assistant' as const),
-    content: m.body,
+    // A sent PDF is stored as "[document: Ashraya — RERA Certificate]". Shown
+    // to the model in that shape it copied the brackets into a real reply, and
+    // the buyer read "[document: RERA certificate]" at the end of a sentence.
+    // Say it in words instead; the markers never go back in front of it.
+    content: m.body.replace(/\[document:\s*([^\]]+)\]/g,
+      (_, name: string) => `(the ${name.trim()} PDF was attached)`),
   }));
 
   // Drop our own messages from both ends.
@@ -340,6 +345,10 @@ export function tidy(text: string): string {
     .replace(/^\s*(thought|reasoning|draft|analysis)\s*:\s*[^\n]*\n?/gim, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/^#+\s*/gm, '')
+    // Belt and braces for the same thing: whatever the model writes, a buyer
+    // never sees our internal document marker.
+    .replace(/\[document:[^\]]*\]/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, 3500); // WhatsApp's limit is 4096; leave room.
