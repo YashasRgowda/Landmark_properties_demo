@@ -67,7 +67,12 @@ VISIT TIME — read the conversation to the END before answering these three key
 - If you cannot tell which of two times was the final one, set "visit_agreed" false and both time keys null. A missing booking is fixable; a wrong one sends him to a locked gate.
 - "visit_datetime_iso" must be a full ISO timestamp with the +05:30 offset, in the future, and between 10:00 and 18:00 India time.
 - "visit_label" is the FINAL agreed slot in the buyer's own words, such as "Sunday 11 AM" — not the first time he floated. It must name the same hour as "visit_datetime_iso".
-- "disqualified" is true only for a broker, a wrong city, someone who has already bought, or someone who says clearly he is not buying.
+- "disqualified" is true when this person is not buying a plot for themselves:
+  - They say they are a broker, property agent, real estate agent, dealer, channel partner, consultant, or that they work for another builder.
+  - They ask about commission, brokerage, a referral payout, or bringing their own clients to us.
+  - They are looking in a different city, have already bought somewhere, or say plainly they are not buying.
+  A person asking what commission we pay is a broker EVEN IF they asked a buyer's questions earlier in the chat — plot sizes, prices and a site visit do not make them a buyer once they ask to be paid for referrals.
+- "disqualify_reason" is a short phrase: "broker", "wrong city", "already bought" or "not buying".
 - "summary" is one short line for the sales agent. Plain English, whatever language the chat was in.
 
 Reply with the JSON object only.`;

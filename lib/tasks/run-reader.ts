@@ -7,7 +7,8 @@ import { getProjectData, type ProjectInfo } from '@/lib/project-data';
 import { parseBudgetToRupees, scoreLead } from '@/lib/scoring';
 import { checkVisitTime, describeVisit } from '@/lib/visit-time';
 import { enqueue } from '@/lib/queue';
-import { scheduleVisitReminder } from '@/lib/chase-engine';
+import { cancelActiveChase, scheduleVisitReminder } from '@/lib/chase-engine';
+import { cancelPendingCallTasks } from '@/lib/calls/create';
 import type { TaskHandler } from './types';
 
 /**
@@ -75,6 +76,22 @@ export const runReader: TaskHandler = async ({ task, log }) => {
       idempotencyKey: `escalate:${leadId}`,
     });
     log('HOT — escalation to an agent queued');
+  }
+
+  /**
+   * Not a buyer: stop everything now.
+   *
+   * The sweep already skips a REJECTED lead, and a running sequence stands
+   * down at its next step — but that step can be days away, and a call already
+   * on an agent's list was never taken off it. A broker who asks what
+   * commission we pay would have sat at the top of the queue until someone
+   * wasted the call finding out.
+   */
+  if (category === 'REJECT') {
+    const stoppedChase = await cancelActiveChase(leadId, 'not a buyer');
+    const calls = await cancelPendingCallTasks(leadId, 'not a buyer');
+    log(`not a buyer (${facts.disqualify_reason || 'no reason given'}) — ` +
+      `${calls} call(s) taken off the list${stoppedChase ? ', follow-ups stopped' : ''}`);
   }
 
   /**
